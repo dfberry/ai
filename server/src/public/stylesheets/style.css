@@ -1,0 +1,41 @@
+.tabs {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 1em;
+}
+
+.tab {
+  cursor: pointer;
+}
+
+.content {
+  display: flex;
+}
+
+.box {
+  border: 1px solid black;
+  padding: 1em;
+  flex: 1; /* This makes each box take up an equal amount of space */
+  height: 200px;
+}
+
+.hidden {
+  display: none;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-gap: 1em;
+  margin-bottom: 1em;
+}
+
+.input-area textarea {
+  width: 75%;
+  margin: 1em;
+}
+
+#error {
+  color: red;
+  margin-top: 1em;
+}
