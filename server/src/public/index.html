@@ -28,7 +28,11 @@
       
       <div class="input-area">
         <textarea id="input" rows="5" placeholder="Enter something..."></textarea>
-        <button onclick="submit()">Submit</button>
+        <select id="model" class="block-element">
+          <option value="azure-assistants-code-generator">Azure Assistants</option>
+          <option value="mistral-codestral">Codestral</option>
+        </select>        
+        <button id="submit-button" class="block-element" onclick="submit()">Submit</button>
       </div>
       <div id="error" style="display: none;"></div>
 </body>

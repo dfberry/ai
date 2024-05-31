@@ -38,7 +38,7 @@ export default class AIAssistant {
     });
   }
 
-  async generateCode(prompt: string) {
+  async generateCode(prompt: string):Promise<string> {
 
     /*
     const instructions = `Given a prompt, this assistant will generate code in .NET, 
