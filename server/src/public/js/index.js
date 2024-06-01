@@ -22,9 +22,12 @@ function showAll() {
 
 async function submit() {
   console.log('submit');
+
   const input = document.getElementById('input').value;
+  const model = document.getElementById('model').value;
+  
   const errorDiv = document.getElementById('error');
-  const response = await fetch(`http://localhost:5000/api/v1/codegen`, { body: JSON.stringify({ input: input }), method: 'POST', headers: { 'Content-Type': 'application/json' } });
+  const response = await fetch(`http://localhost:5000/api/v1/codegen?model=${model}`, { body: JSON.stringify({ input: input }), method: 'POST', headers: { 'Content-Type': 'application/json' } });
 
   if(response.ok){
     let { answer } = await response.json();

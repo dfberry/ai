@@ -16,7 +16,11 @@
   border: 1px solid black;
   padding: 1em;
   flex: 1; /* This makes each box take up an equal amount of space */
-  height: 200px;
+  min-height: 200px;
+}
+
+.block-element {
+  display: block;
 }
 
 .hidden {
