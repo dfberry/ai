@@ -4,7 +4,9 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "start": "ts-node src/index.ts",
+    "postinstall": "mkdir -p generated",
+    "start": "ts-node --env-node=.env src/index.ts",
+    "tts": "npm run build && node --env-file=.env dist/index.js tts ./example.md ./generated/example.mp3",
     "build": "tsc"
   },
   "dependencies": {

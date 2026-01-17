@@ -20,3 +20,7 @@ node src/index.js stt <inputAudioPath> <outputTextPath>
 
 ## Example
 - See example.md for sample input
+
+```
+npm run build && node --env-file=.env dist/index.js tts ./example.md ./generated/example.mp3
+```
