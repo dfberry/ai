@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "main": "src/index.ts",
+  "types": "dist/index.d.ts",
   "scripts": {
     "postinstall": "mkdir -p generated",
     "start": "ts-node --env-node=.env src/index.ts",

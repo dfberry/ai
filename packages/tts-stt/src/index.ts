@@ -45,19 +45,17 @@ export async function textToSpeech(markdownPath: string, outputMp3Path: string):
   if (!markdownPath || !outputMp3Path) {
     return { status: 'error', error: 'Both markdownPath and outputMp3Path are required.' };
   }
-  const absMarkdownPath = path.isAbsolute(markdownPath) ? markdownPath : path.resolve(process.cwd(), markdownPath);
-  const absOutputMp3Path = path.isAbsolute(outputMp3Path) ? outputMp3Path : path.resolve(process.cwd(), outputMp3Path);
   try {
-    await fs.access(absMarkdownPath);
+    await fs.access(markdownPath);
   } catch {
-    return { status: 'error', error: `Markdown file does not exist: ${absMarkdownPath}`, inputPath: absMarkdownPath };
+    return { status: 'error', error: `Markdown file does not exist: ${markdownPath}`, inputPath: markdownPath };
   }
-  const markdown = await fs.readFile(absMarkdownPath, "utf-8");
+  const markdown = await fs.readFile(markdownPath, "utf-8");
   const plainText = markdownToText(markdown);
   const charCount = plainText.length;
   const speechConfig = SpeechConfig.fromSubscription(speechKey, serviceRegion);
   speechConfig.speechSynthesisOutputFormat = 5; // Audio24Khz160KBitRateMonoMp3
-  const audioConfig = AudioConfig.fromAudioFileOutput(absOutputMp3Path);
+  const audioConfig = AudioConfig.fromAudioFileOutput(outputMp3Path);
   const synthesizer = new SpeechSynthesizer(speechConfig, audioConfig);
 
   return new Promise((resolve) => {
@@ -65,9 +63,9 @@ export async function textToSpeech(markdownPath: string, outputMp3Path: string):
       const response: SpeechResponse = {
         status: result.errorDetails ? 'error' : 'success',
         error: result.errorDetails || undefined,
-        output: result.errorDetails ? undefined : absOutputMp3Path,
-        inputPath: absMarkdownPath,
-        outputPath: absOutputMp3Path,
+        output: result.errorDetails ? undefined : outputMp3Path,
+        inputPath: markdownPath,
+        outputPath: outputMp3Path,
         charCount,
         sdkResult: result,
       };
@@ -81,15 +79,13 @@ export async function speechToText(inputAudioPath: string, outputTextPath: strin
   if (!inputAudioPath || !outputTextPath) {
     return { status: 'error', error: 'Both inputAudioPath and outputTextPath are required.' };
   }
-  const absInputAudioPath = path.isAbsolute(inputAudioPath) ? inputAudioPath : path.resolve(process.cwd(), inputAudioPath);
-  const absOutputTextPath = path.isAbsolute(outputTextPath) ? outputTextPath : path.resolve(process.cwd(), outputTextPath);
   try {
-    await fs.access(absInputAudioPath);
+    await fs.access(inputAudioPath);
   } catch {
-    return { status: 'error', error: `Input audio file does not exist: ${absInputAudioPath}`, inputPath: absInputAudioPath };
+    return { status: 'error', error: `Input audio file does not exist: ${inputAudioPath}`, inputPath: inputAudioPath };
   }
   const speechConfig = SpeechConfig.fromSubscription(speechKey, serviceRegion);
-  const audioBuffer = await fs.readFile(absInputAudioPath);
+  const audioBuffer = await fs.readFile(inputAudioPath);
   const audioConfig = AudioConfig.fromWavFileInput(audioBuffer);
   const recognizer = new SpeechRecognizer(speechConfig, audioConfig);
 
@@ -99,25 +95,25 @@ export async function speechToText(inputAudioPath: string, outputTextPath: strin
         resolve({
           status: 'error',
           error: result.errorDetails,
-          inputPath: absInputAudioPath,
-          outputPath: absOutputTextPath,
+          inputPath: inputAudioPath,
+          outputPath: outputTextPath,
           sdkResult: result,
         });
       } else {
-        fs.writeFile(absOutputTextPath, result.text).then(() => {
+        fs.writeFile(outputTextPath, result.text).then(() => {
           resolve({
             status: 'success',
-            output: absOutputTextPath,
-            inputPath: absInputAudioPath,
-            outputPath: absOutputTextPath,
+            output: outputTextPath,
+            inputPath: inputAudioPath,
+            outputPath: outputTextPath,
             sdkResult: result,
           });
         }).catch((err) => {
           resolve({
             status: 'error',
             error: err.message,
-            inputPath: absInputAudioPath,
-            outputPath: absOutputTextPath,
+            inputPath: inputAudioPath,
+            outputPath: outputTextPath,
             sdkResult: result,
           });
         });
@@ -142,7 +138,9 @@ async function main() {
       if (!args[1] || !args[2]) {
         throw new Error("tts mode requires <markdownPath> and <outputMp3Path> arguments.");
       }
-      response = await textToSpeech(args[1], args[2]);
+      const markdownPath = path.isAbsolute(args[1]) ? args[1] : path.resolve(process.cwd(), args[1]);
+      const outputMp3Path = path.isAbsolute(args[2]) ? args[2] : path.resolve(process.cwd(), args[2]);
+      response = await textToSpeech(markdownPath, outputMp3Path);
       if (response.status === 'success') {
         console.log(`MP3 file created at: ${response.output}`);
         console.log(`Text to synthesize: ${response.charCount} characters`);
@@ -154,7 +152,9 @@ async function main() {
       if (!args[1] || !args[2]) {
         throw new Error("stt mode requires <inputAudioPath> and <outputTextPath> arguments.");
       }
-      response = await speechToText(args[1], args[2]);
+      const inputAudioPath = path.isAbsolute(args[1]) ? args[1] : path.resolve(process.cwd(), args[1]);
+      const outputTextPath = path.isAbsolute(args[2]) ? args[2] : path.resolve(process.cwd(), args[2]);
+      response = await speechToText(inputAudioPath, outputTextPath);
       if (response.status === 'success') {
         console.log(`Text file created at: ${response.output}`);
       } else {
