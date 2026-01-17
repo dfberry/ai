@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI One-Shot</title>
+</head>
+<body>
+  <h1>AI One-Shot</h1>
+  <form id="prompt-form">
+    <label for="system-prompt">System Prompt:</label><br>
+    <textarea id="system-prompt" name="systemPrompt" rows="4" cols="50"></textarea><br>
+    <label for="user-prompt">User Prompt:</label><br>
+    <textarea id="user-prompt" name="userPrompt" rows="4" cols="50"></textarea><br>
+    <label for="file-upload">Upload Files or Folders:</label><br>
+    <input id="file-upload" type="file" webkitdirectory multiple><br>
+    <button type="submit">Generate</button>
+  </form>
+  <div id="response"></div>
+
+  <script>
+    document.getElementById('prompt-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      console.log('=== FORM SUBMISSION START ===');
+
+      const systemPrompt = document.getElementById('system-prompt').value;
+      const userPrompt = document.getElementById('user-prompt').value;
+
+      console.log('Form data collected:', {
+        systemPromptLength: systemPrompt.length,
+        userPromptLength: userPrompt.length,
+        systemPromptPreview: systemPrompt.substring(0, 100) + (systemPrompt.length > 100 ? '...' : ''),
+        userPromptPreview: userPrompt.substring(0, 100) + (userPrompt.length > 100 ? '...' : '')
+      });
+
+      const requestBody = { systemPrompt, userPrompt };
+      console.log('Making fetch request to /api/generate with body:', requestBody);
+
+      const responseElement = document.getElementById('response');
+      responseElement.innerText = 'Generating response...';
+
+      try {
+        console.log('Sending request...');
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        });
+
+        console.log('Response received:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries())
+        });
+
+        const data = await response.json();
+        console.log('Response data parsed:', {
+          hasAnswer: !!data.answer,
+          hasError: !!data.error,
+          answerLength: data.answer?.length || 0,
+          answerType: typeof data.answer,
+          answerPreview: data.answer ? data.answer.substring(0, 200) + (data.answer.length > 200 ? '...' : '') : 'NO_ANSWER',
+          errorMessage: data.error,
+          fullData: data
+        });
+
+        const displayText = data.answer || data.error || 'No response received';
+        console.log('Setting response element text to:', displayText.substring(0, 100) + (displayText.length > 100 ? '...' : ''));
+        
+        responseElement.innerText = displayText;
+        console.log('Response element updated. Current innerHTML length:', responseElement.innerText.length);
+        console.log('=== FORM SUBMISSION END (SUCCESS) ===');
+      } catch (error) {
+        console.error('=== FORM SUBMISSION END (ERROR) ===');
+        console.error('Fetch error:', error);
+        responseElement.innerText = 'Error: ' + error.message;
+      }
+    });
+  </script>
+</body>
+</html>
