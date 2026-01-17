@@ -3,7 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "solutions/*", 
+    "solutions/hugging-face/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

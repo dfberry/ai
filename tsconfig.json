@@ -2,5 +2,6 @@
   "files": [],
   "references": [
     { "path": "./packages/tts-stt" }
-  ]
+  ],
+  "compilerOptions": {}
 }
