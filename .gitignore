@@ -135,3 +135,7 @@
 # OS generated files
 **/Thumbs.db
 **/ehthumbs.db
+
+# Custom generated files
+**/generated/
+**/output/
