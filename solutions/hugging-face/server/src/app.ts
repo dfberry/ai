@@ -8,8 +8,6 @@ import * as middlewares from './middlewares';
 import api from './api';
 import MessageResponse from './interfaces/MessageResponse';
 
-require('dotenv').config();
-
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(morgan('dev'));

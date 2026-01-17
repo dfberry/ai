@@ -1,19 +1,21 @@
 {
-  "name": "my-monorepo",
-  "private": true,
-  "version": "1.0.0",
-  "workspaces": [
-    "packages/*",
-    "solutions/*", 
-    "solutions/hugging-face/*"
-  ],
-  "scripts": {
-    "build": "npm run build --workspaces",
-    "start": "npm run start --workspaces",
-    "lint": "eslint . --ext .ts,.js,.tsx,.mts,.cts --fix"
-  },
-  "devDependencies": {
-    "eslint": "^9.0.0",
-    "@eslint/js": "^9.0.0"
-  }
+    "scripts": {
+        "clean": "find . -type d -name 'dist' -o -name 'node_modules' | xargs rm -rf",
+        "build": "npm run build --workspaces",
+        "start": "npm run start --workspaces",
+        "lint": "eslint . --ext .ts,.js,.tsx,.mts,.cts --fix"
+    },
+    "name": "my-monorepo",
+    "private": true,
+    "version": "1.0.0",
+    "workspaces": [
+        "packages/*",
+        "solutions/*",
+        "solutions/hugging-face/*"
+    ],
+    "devDependencies": {
+        "@eslint/js": "^9.0.0",
+        "eslint": "^9.0.0",
+        "typescript": "^5.9.3"
+    }
 }

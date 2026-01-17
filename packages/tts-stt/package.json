@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "main": "src/index.ts",
+  "types": "dist/index.d.ts",
   "scripts": {
     "postinstall": "mkdir -p generated",
-    "start": "ts-node --env-node=.env src/index.ts",
+    "start": "node --env-node=.env dist/index.ts",
     "tts": "npm run build && node --env-file=.env dist/index.js tts ./example.md ./generated/example.mp3",
     "build": "tsc"
   },
@@ -13,9 +14,12 @@
     "microsoft-cognitiveservices-speech-sdk": "^1.47.0"
   },
   "devDependencies": {
-    "@types/node": "^22.19.7",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.2.2"
+    "@types/node": "^22.19.7"
+  },
+  "typesVersions": {
+    "*": {
+      "webrtc": []
+    }
   },
   "engines": {
     "node": ">=22.0.0"
