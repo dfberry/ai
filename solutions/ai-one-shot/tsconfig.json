@@ -7,6 +7,14 @@
     "strict": true,
     "esModuleInterop": true
   },
-    "include": ["src/**/*"],
-    "exclude": ["node_modules"]
+  "include": [
+    "./*.js",
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "public"
+  ]
 }
