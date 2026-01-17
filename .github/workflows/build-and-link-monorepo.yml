@@ -1,0 +1,36 @@
+name: Build and Link Monorepo
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Build all packages
+        run: |
+          npm run build --workspaces --if-present
+
+      - name: Lint all packages
+        run: |
+          npm run lint --workspaces --if-present
+
+      - name: Link all packages
+        run: |
+          npm install --workspaces --legacy-peer-deps
