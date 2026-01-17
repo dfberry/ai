@@ -1,6 +1,4 @@
 import { HfInference } from '@huggingface/inference';
-import dotenv from 'dotenv';
-dotenv.config();
 
 const authToken = process.env.HUGGING_FACE_ACCESS_TOKEN;
 

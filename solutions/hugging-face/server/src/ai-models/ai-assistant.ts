@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { AzureOpenAI } from 'openai';
 import {
   Assistant,

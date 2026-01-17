@@ -1,11 +1,8 @@
 import Fastify from 'fastify';
-import dotenv from 'dotenv';
 import { createOpenAIClient, chatCompletion, OpenAIConfig } from '../../../packages/openai-utils/src';
 import path from 'path';
 import { extractUrls, fetchUrlContent } from './utils/urlUtils';
 import { readFileContent, readFolderContents } from './utils/fileUtils';
-
-dotenv.config();
 
 const fastify = Fastify({ logger: true });
 
