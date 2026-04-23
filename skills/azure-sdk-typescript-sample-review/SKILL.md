@@ -64,8 +64,8 @@ These issues always block publication. Samples with any of these must be rejecte
 3. **No error handling** — Uncaught promises, no try/catch blocks, silent failures
 4. **Broken imports** — Missing dependencies, incorrect import paths, package not found errors
 5. **Security vulnerabilities** — `npm audit` shows critical or high CVEs
-6. **Missing LICENSE** — No LICENSE file (MIT required for Azure Samples org)
-7. **.env file committed** — Live credentials in version control
+6. **Missing LICENSE** — No LICENSE file at ANY level of repo hierarchy (MIT required for Azure Samples org). ⚠️ Check repo root before flagging.
+7. **.env file committed** — Live credentials in version control. ⚠️ Verify with `git ls-files .env` — a .env on disk but in .gitignore is NOT committed.
 8. **Track 1 packages** — Uses legacy `azure-*` packages instead of `@azure/*`
 
 ---
@@ -1672,6 +1672,12 @@ repo/
 
 **Production Issue:** Vector search sample's `HotelsData_Vector.json` missing from repo, causing runtime error.
 
+> **⚠️ FALSE POSITIVE PREVENTION:** Before flagging a data file as missing:
+> 1. **Check the FULL PR file list** — not just the immediate project directory. Data files often live in sibling directories, parent directories, or shared `data/` folders.
+> 2. **Trace the file path in code** relative to the working directory the code actually runs from (check `package.json` scripts, `tsconfig.json` `rootDir`/`outDir`, and any path joins in source).
+> 3. **Check for monorepo patterns** — in sample collections, data may be shared across multiple samples via a common parent directory.
+> 4. Only flag as missing if the file truly does not exist anywhere in the PR or repo at the path the code resolves to at runtime.
+
 ---
 
 ### DATA-2: JSON Data Loading (MEDIUM)
@@ -1758,6 +1764,12 @@ repo/
 ```
 
 **Production Issue:** Vector search sample had `.env` with live Azure subscription ID, tenant ID, and endpoints committed. No `.gitignore` file. Also had `dist/` and `node_modules/` committed.
+
+> **⚠️ FALSE POSITIVE PREVENTION:** Before flagging `.env` or credential files as committed, you MUST verify the file is actually tracked by git:
+> 1. **Check .gitignore** — look in the project directory AND all parent directories for `.gitignore` entries covering `.env`.
+> 2. **Run `git ls-files .env`** — if it returns empty, the file is NOT tracked and is NOT a security issue.
+> 3. A `.env` file that exists on disk but is gitignored is working as designed — developers create it locally from `.env.sample`.
+> 4. Only flag as CRITICAL if `git ls-files` confirms the file IS tracked, or if no `.gitignore` exists at all.
 
 ---
 
@@ -1855,6 +1867,12 @@ repo/
 ```
 
 **Why:** All repositories in Azure-Samples organization require MIT license.
+
+> **⚠️ FALSE POSITIVE PREVENTION:** Before flagging a missing LICENSE:
+> 1. **Check the REPO ROOT** — look for `LICENSE`, `LICENSE.md`, `LICENSE.txt`, `license.txt`, or similar at the repository root.
+> 2. **Check parent directories** — in monorepos and sample collections, a single license at the repo root covers all subdirectories.
+> 3. Per-sample LICENSE files are NOT required when the repo root already has one.
+> 4. Only flag if NO license file exists at ANY level of the repo hierarchy above the sample.
 
 ---
 
@@ -2396,6 +2414,13 @@ var appServiceName = 'webapp'
 
 ### AZD-1: azure.yaml Structure (MEDIUM)
 **Pattern:** Complete `azure.yaml` with services, hooks, and metadata.
+
+> **⚠️ FALSE POSITIVE PREVENTION:** Before flagging `azure.yaml` as missing or incomplete:
+> 1. The `services`, `hooks`, and `host` fields in `azure.yaml` are **OPTIONAL**. For infrastructure-only samples (where `azd` provisions Azure resources but does NOT deploy application code), a minimal `azure.yaml` with just `name` and `metadata` is correct and complete.
+> 2. Do NOT flag missing optional fields if `azd up` and `azd down` work correctly.
+> 3. Only flag if required fields (`name`) are missing or if the file causes `azd` commands to fail.
+> 4. Run the sample locally first: `azd up` followed by `azd down` to validate the file is functional before reporting issues.
+> 5. **Check parent directories** — in monorepo/multi-sample layouts, `azure.yaml` often lives one or more levels ABOVE the language-specific project folder (e.g., at the sample root, not inside `src/` or the language subfolder). Before flagging as missing, check the full directory hierarchy up to the repo root.
 
 ✅ **DO:**
 ```yaml
