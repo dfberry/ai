@@ -21,7 +21,7 @@ Use this skill when reviewing **.NET code samples** for Azure SDKs intended for 
 
 This skill captures patterns and anti-patterns for Azure SDK .NET samples, including .NET Aspire orchestration patterns unique to the .NET ecosystem.
 
-**Total rules: 65** (9 CRITICAL, 23 HIGH, 29 MEDIUM, 4 LOW)
+**Total rules: 71** (9 CRITICAL, 25 HIGH, 33 MEDIUM, 4 LOW)
 
 ---
 
@@ -38,7 +38,7 @@ This skill captures patterns and anti-patterns for Azure SDK .NET samples, inclu
 
 Use this checklist for rapid initial triage before deep review:
 
-- [ ] **.csproj**: Uses Track 2 Azure SDK packages (`Azure.*`, not `Microsoft.Azure.*`)
+- [ ] **.csproj**: Uses Track 2 Azure SDK packages (`Azure.*`, not `Microsoft.Azure.*` — exception: `Microsoft.Azure.Cosmos` is current)
 - [ ] **Authentication**: Uses `DefaultAzureCredential` (not connection strings or hardcoded keys)
 - [ ] **.gitignore**: Exists and includes `bin/`, `obj/`, `.env`, `appsettings.Development.json`
 - [ ] **No secrets**: No hardcoded credentials, API keys, or tokens in code
@@ -49,7 +49,7 @@ Use this checklist for rapid initial triage before deep review:
 - [ ] **Error handling**: `catch` blocks present with proper exception types
 - [ ] **Resource cleanup**: Clients properly disposed (`await using`, `IAsyncDisposable`)
 - [ ] **Lock file**: `packages.lock.json` committed when `RestorePackagesWithLockFile` is set
-- [ ] **Target framework**: `net9.0` or `net10.0`
+- [ ] **Target framework**: `net8.0`, `net9.0`, or `net10.0`
 - [ ] **Build succeeds**: `dotnet build` completes without errors
 - [ ] **Sample runs**: `dotnet run` executes without crashes
 
@@ -66,7 +66,7 @@ These issues always block publication. Samples with any of these must be rejecte
 5. **Security vulnerabilities**—`dotnet list package --vulnerable` shows critical or high CVEs
 6. **Missing LICENSE**—No LICENSE file at ANY level of repo hierarchy (MIT required for Azure Samples org). ⚠️ Check repo root before flagging.
 7. **Secrets committed**—Live credentials in `appsettings.json` or `.env` in version control. ⚠️ Verify with `git ls-files` before flagging.
-8. **Track 1 packages**—Uses legacy `Microsoft.Azure.*` packages instead of `Azure.*`
+8. **Track 1 packages**—Uses legacy `Microsoft.Azure.*` packages instead of `Azure.*` (**Exception:** `Microsoft.Azure.Cosmos` v3.x is the current Cosmos DB SDK)
 
 ---
 
@@ -75,14 +75,26 @@ These issues always block publication. Samples with any of these must be rejecte
 **What this section covers:** .csproj structure, target framework, dependency management, nullable reference types, environment configuration, and SDK pinning. These foundational patterns ensure samples build correctly and run reliably across environments.
 
 ### PS-1: Target Framework (HIGH)
-**Pattern:** Target current .NET versions (.NET 9 or .NET 10). Avoid unsupported or preview frameworks for published samples.
+**Pattern:** Target current supported .NET versions. Both LTS and STS releases are acceptable while in support.
 
 ✅ **DO:**
 ```xml
-<!-- .csproj -->
+<!-- .csproj — .NET 9 (STS, supported until May 2026) -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+```
+
+```xml
+<!-- .csproj — .NET 8 (LTS, supported until November 2026) -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -94,13 +106,21 @@ These issues always block publication. Samples with any of these must be rejecte
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>  <!-- ❌ Out of support -->
+    <TargetFramework>net6.0</TargetFramework>  <!-- ❌ Out of support (Nov 2024) -->
     <Nullable>disable</Nullable>                <!-- ❌ Nullable should be enabled -->
   </PropertyGroup>
 </Project>
 ```
 
-**Why:** .NET 6 reached end-of-support in November 2024. .NET 9 is the current release; .NET 10 is the next LTS. Samples must target supported frameworks.
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>  <!-- ❌ Out of support (May 2024) -->
+  </PropertyGroup>
+</Project>
+```
+
+**Why:** .NET 8 is the current LTS (Long Term Support, until Nov 2026). .NET 9 is STS (Standard Term Support, until May 2026). .NET 10 is the next LTS. Samples must target supported frameworks—either `net8.0`, `net9.0`, or `net10.0`.
 
 ---
 
@@ -144,10 +164,11 @@ These issues always block publication. Samples with any of these must be rejecte
 ✅ **DO:**
 ```xml
 <ItemGroup>
-  <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />     <!-- ✅ Used in BlobService.cs -->
-  <PackageReference Include="Azure.Identity" Version="1.13.2" />           <!-- ✅ Used for auth -->
-  <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.7.0" /> <!-- ✅ Used in SecretsService.cs -->
-  <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />          <!-- ✅ Used in AiService.cs -->
+  <!-- Use latest stable versions — check NuGet for current releases -->
+  <PackageReference Include="Azure.Storage.Blobs" Version="12.*" />
+  <PackageReference Include="Azure.Identity" Version="1.*" />
+  <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.*" />
+  <PackageReference Include="Azure.AI.OpenAI" Version="2.*" />
 </ItemGroup>
 ```
 
@@ -160,7 +181,7 @@ These issues always block publication. Samples with any of these must be rejecte
 </ItemGroup>
 ```
 
-**Why:** Phantom dependencies bloat samples and confuse users. `System.Text.Json` is built-in since .NET Core 3.0—prefer it over Newtonsoft.Json in new samples.
+**Why:** Phantom dependencies bloat samples and confuse users. `System.Text.Json` is built-in since .NET Core 3.0—prefer it over Newtonsoft.Json in new samples. Don't hardcode specific package versions in review guidance—they go stale quickly. Always use the latest stable version from NuGet.
 
 ---
 
@@ -173,7 +194,7 @@ These issues always block publication. Samples with any of these must be rejecte
 using Azure.Storage.Blobs;
 using Azure.Security.KeyVault.Secrets;
 using Azure.Messaging.ServiceBus;
-using Microsoft.Azure.Cosmos;  // Exception: Track 2 patterns but legacy namespace
+using Microsoft.Azure.Cosmos;  // ✅ Current Cosmos DB SDK (v3.x) — Track 2 patterns despite Microsoft.Azure.* namespace
 using Azure.Data.Tables;
 using Azure.Identity;
 using Azure.AI.OpenAI;
@@ -188,14 +209,15 @@ using Microsoft.Azure.ServiceBus;          // Use Azure.Messaging.ServiceBus
 
 // ❌ Obsolete patterns
 using Microsoft.WindowsAzure.Storage;      // Ancient, never use
+using Microsoft.Azure.Documents.Client;    // Legacy Cosmos DB SDK — use Microsoft.Azure.Cosmos v3.x
 ```
 
-**Why:** Track 2 SDKs (`Azure.*`) are current generation with consistent APIs, `TokenCredential` support, and active maintenance. Track 1 (`Microsoft.Azure.*`) is legacy. **Exception:** `Microsoft.Azure.Cosmos` is the current Cosmos DB SDK—it follows Track 2 patterns despite the legacy namespace.
+**Why:** Track 2 SDKs (`Azure.*`) are current generation with consistent APIs, `TokenCredential` support, and active maintenance. Track 1 (`Microsoft.Azure.*`) is legacy. **Exception:** `Microsoft.Azure.Cosmos` (v3.x) is the **current, recommended** Cosmos DB SDK—it follows Track 2 patterns despite the `Microsoft.Azure.*` namespace. The actual legacy package was `Microsoft.Azure.Documents.Client`.
 
 ---
 
 ### PS-5: Environment/Configuration (MEDIUM)
-**Pattern:** Use `appsettings.json` + User Secrets for local development. Validate all required configuration with descriptive errors.
+**Pattern:** Use `appsettings.json` + User Secrets for local development. Validate all required configuration with descriptive errors. Prefer `dotnet user-secrets` over `.env` files in .NET projects.
 
 ✅ **DO:**
 ```csharp
@@ -238,7 +260,21 @@ string storageAccount = "contosoprod";
 
 // ❌ Don't silently fall back to defaults
 string storageAccount = configuration["Azure:StorageAccountName"] ?? "devstoreaccount1";
+
+// ❌ Don't use .env files for .NET projects — prefer dotnet user-secrets
+// .env files require third-party packages; user-secrets is built-in
 ```
+
+**Tip:** For local development, prefer `dotnet user-secrets` over `.env` files:
+```bash
+# Initialize user secrets for the project
+dotnet user-secrets init
+
+# Set secret values
+dotnet user-secrets set "Azure:StorageAccountName" "mystorageaccount"
+dotnet user-secrets set "Azure:KeyVaultUrl" "https://mykeyvault.vault.azure.net/"
+```
+User secrets are stored outside the project directory and never committed to source control.
 
 ---
 
@@ -387,9 +423,10 @@ dotnet list package --vulnerable
 ✅ **DO:**
 ```xml
 <ItemGroup>
-  <PackageReference Include="Azure.Storage.Blobs" Version="12.22.2" />  <!-- ✅ Official -->
-  <PackageReference Include="Azure.Identity" Version="1.13.2" />         <!-- ✅ Official -->
-  <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />        <!-- ✅ Official -->
+  <!-- ✅ Official Azure SDK packages (use latest stable versions from NuGet) -->
+  <PackageReference Include="Azure.Storage.Blobs" Version="12.*" />
+  <PackageReference Include="Azure.Identity" Version="1.*" />
+  <PackageReference Include="Azure.AI.OpenAI" Version="2.*" />
 </ItemGroup>
 ```
 
@@ -759,7 +796,7 @@ await foreach (BlobItem blob in containerClient.GetBlobsAsync())
 **What this section covers:** AI service client patterns, API versioning, embeddings, chat completions, and document analysis. Focus on the official `Azure.AI.OpenAI` SDK for Azure OpenAI.
 
 ### AI-1: Azure.AI.OpenAI Client Configuration (HIGH)
-**Pattern:** Use `Azure.AI.OpenAI` with `DefaultAzureCredential`. Configure retry and timeout options.
+**Pattern:** Use `Azure.AI.OpenAI` v2.x with `DefaultAzureCredential`. The v2.x SDK uses `System.ClientModel` (not `Azure.Core.Pipeline`) for retry configuration.
 
 ✅ **DO:**
 ```csharp
@@ -767,24 +804,26 @@ using Azure.AI.OpenAI;
 using Azure.Identity;
 using OpenAI.Chat;
 using OpenAI.Embeddings;
+using System.ClientModel.Primitives;
 
 var credential = new DefaultAzureCredential();
 
+// ✅ Azure.AI.OpenAI v2.x uses System.ClientModel for retry
 var client = new AzureOpenAIClient(
     new Uri(config["Azure:OpenAIEndpoint"]!),
     credential,
     new AzureOpenAIClientOptions
     {
-        RetryPolicy = new Azure.Core.Pipeline.RetryPolicy(maxRetries: 3),
+        RetryPolicy = new ClientRetryPolicy(maxRetries: 3),
     });
 
-// ✅ Chat completion
+// ✅ Chat completion (v2.x pattern)
 ChatClient chatClient = client.GetChatClient("gpt-4o");
 ChatCompletion completion = await chatClient.CompleteChatAsync(
-    new ChatMessage[]
-    {
+    [
+        new SystemChatMessage("You are a helpful assistant."),
         new UserChatMessage("Hello!")
-    });
+    ]);
 Console.WriteLine(completion.Content[0].Text);
 
 // ✅ Embeddings
@@ -800,9 +839,20 @@ var client = new AzureOpenAIClient(
     new Uri(endpoint),
     new Azure.AzureKeyCredential(apiKey));  // ❌ Use DefaultAzureCredential
 
+// ❌ Don't use Azure.Core.Pipeline.RetryPolicy (v1.x pattern, won't compile in v2.x)
+var client = new AzureOpenAIClient(
+    new Uri(endpoint),
+    credential,
+    new AzureOpenAIClientOptions
+    {
+        RetryPolicy = new Azure.Core.Pipeline.RetryPolicy(maxRetries: 3),  // ❌ Wrong type for v2.x
+    });
+
 // ❌ Don't use deprecated OpenAI client patterns
 // The Azure.AI.OpenAI v2.x API replaced the v1.x patterns
 ```
+
+> **Note:** `Azure.AI.OpenAI` v2.x is built on `System.ClientModel`, not `Azure.Core`. Retry is configured via `System.ClientModel.Primitives.ClientRetryPolicy`, not `Azure.Core.Pipeline.RetryPolicy`.
 
 ---
 
@@ -951,22 +1001,25 @@ var query = new QueryDefinition("SELECT * FROM c");
 ---
 
 ### DB-2: Azure SQL with Microsoft.Data.SqlClient (HIGH)
-**Pattern:** Use `Microsoft.Data.SqlClient` with AAD token authentication. Use parameterized queries.
+**Pattern:** Use `Microsoft.Data.SqlClient` with AAD authentication. Prefer `Authentication=Active Directory Default` connection string over manual token acquisition. Use parameterized queries.
 
 ✅ **DO:**
 ```csharp
 using Microsoft.Data.SqlClient;
-using Azure.Identity;
 
-var credential = new DefaultAzureCredential();
-var token = await credential.GetTokenAsync(
-    new Azure.Core.TokenRequestContext(
-        new[] { "https://database.windows.net/.default" }));
-
+// ✅ Preferred: Connection string with Active Directory Default (simplest)
 await using var connection = new SqlConnection(
-    $"Server={config["Azure:SqlServer"]};Database={config["Azure:SqlDatabase"]};Encrypt=True;");
-connection.AccessToken = token.Token;
+    $"Server={config["Azure:SqlServer"]};Database={config["Azure:SqlDatabase"]};" +
+    "Authentication=Active Directory Default;Encrypt=True;");
 await connection.OpenAsync();
+
+// ✅ Alternative: Manual token acquisition (when you need token for other purposes)
+// using Azure.Identity;
+// var credential = new DefaultAzureCredential();
+// var token = await credential.GetTokenAsync(
+//     new Azure.Core.TokenRequestContext(
+//         new[] { "https://database.windows.net/.default" }));
+// connection.AccessToken = token.Token;
 
 // ✅ Parameterized query
 await using var command = new SqlCommand(
@@ -989,6 +1042,8 @@ var connection = new SqlConnection(
 // ❌ Don't use string concatenation for queries
 var query = $"SELECT * FROM Products WHERE Category = '{userInput}'";  // ❌ SQL injection!
 ```
+
+**Why:** `Authentication=Active Directory Default` in the connection string delegates credential resolution to `Microsoft.Data.SqlClient`, which supports managed identity, Azure CLI, and Visual Studio credentials automatically—no manual token management needed.
 
 ---
 
@@ -1756,6 +1811,17 @@ You should see output similar to:
 - [`infra/main.bicep`](./infra/main.bicep)—Infrastructure template
 ```
 
+❌ **DON'T:**
+```markdown
+## Project Structure
+
+- [`src/Program.cs`](./app/Program.cs)—❌ Link path doesn't match description
+- [`BlobService.cs`](./src/BlobService.cs)—❌ File is actually in src/Services/
+- [`infrastructure`](./infrastructure/)—❌ Folder is actually named "infra/"
+```
+
+**Why:** Broken links in README frustrate users and signal a poorly maintained sample. Verify every link with `git ls-files` or the PR file list.
+
 ---
 
 ### DOC-3: Troubleshooting Section (MEDIUM)
@@ -2147,17 +2213,19 @@ builder.Build().Run();
 ```xml
 <!-- AppHost/AppHost.csproj -->
 <Project Sdk="Microsoft.NET.Sdk">
-  <Sdk Name="Aspire.AppHost.Sdk" Version="9.1.0" />
+  <!-- Use the latest stable Aspire SDK version — check NuGet for current release -->
+  <Sdk Name="Aspire.AppHost.Sdk" Version="9.*" />
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <IsAspireHost>true</IsAspireHost>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="9.1.0" />
-    <PackageReference Include="Aspire.Hosting.Azure.CosmosDB" Version="9.1.0" />
-    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="9.1.0" />
-    <PackageReference Include="Aspire.Hosting.Azure.ServiceBus" Version="9.1.0" />
+    <!-- Use latest stable versions — do not hardcode specific patch versions -->
+    <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="9.*" />
+    <PackageReference Include="Aspire.Hosting.Azure.CosmosDB" Version="9.*" />
+    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="9.*" />
+    <PackageReference Include="Aspire.Hosting.Azure.ServiceBus" Version="9.*" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\MyApi\MyApi.csproj" />
@@ -2249,7 +2317,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();  // ✅ Adds telemetry, health checks, resilience
 // ... configure services
 var app = builder.Build();
-app.MapDefaultEndpoints();  // ✅ Maps /health and /alive
+app.MapDefaultEndpoints();  // ✅ /health (readiness — checks Azure deps) and /alive (liveness — basic self-check)
 ```
 
 ❌ **DON'T:**
@@ -2322,7 +2390,7 @@ builder.Services.AddHealthChecks()
         tags: new[] { "ready" });
 
 var app = builder.Build();
-app.MapDefaultEndpoints();  // ✅ /health (liveness) and /alive (readiness)
+app.MapDefaultEndpoints();  // ✅ /health (readiness, checks dependencies) and /alive (liveness, basic self-check)
 ```
 
 ❌ **DON'T:**
@@ -2360,6 +2428,306 @@ private static IHostApplicationBuilder AddOpenTelemetryExporters(
 ```
 
 **Why:** The Aspire dashboard provides traces, logs, and metrics visualization out-of-the-box during development. For production, configure OTLP export to Azure Monitor or another backend.
+
+---
+
+### ASP-6: Aspire Client Integration Packages (HIGH)
+**Pattern:** In Aspire service projects, use `Aspire.Azure.*` client integration packages instead of manual client construction. These packages provide DI-friendly registration, health checks, and telemetry out-of-the-box.
+
+✅ **DO:**
+```xml
+<!-- MyApi/MyApi.csproj — Aspire client integration packages -->
+<ItemGroup>
+  <!-- Use latest stable versions — check NuGet for current releases -->
+  <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="9.*" />
+  <PackageReference Include="Aspire.Azure.Data.Cosmos" Version="9.*" />
+  <PackageReference Include="Aspire.Azure.Security.KeyVault" Version="9.*" />
+  <PackageReference Include="Aspire.Azure.AI.OpenAI" Version="9.*" />
+</ItemGroup>
+```
+
+```csharp
+// MyApi/Program.cs — Aspire DI registration
+var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
+
+// ✅ Aspire client integrations — automatically wired via .WithReference() in AppHost
+builder.AddAzureBlobClient("blobs");           // Registers BlobServiceClient in DI
+builder.AddAzureCosmosClient("cosmos");         // Registers CosmosClient in DI
+builder.AddAzureKeyVaultClient("keyvault");     // Registers SecretClient in DI
+builder.AddAzureOpenAIClient("openai");         // Registers AzureOpenAIClient in DI
+
+// ✅ Inject via constructor
+public class ProductService(BlobServiceClient blobClient, CosmosClient cosmosClient)
+{
+    public async Task UploadAsync(string name, Stream content)
+    {
+        var container = blobClient.GetBlobContainerClient("products");
+        await container.GetBlobClient(name).UploadAsync(content, overwrite: true);
+    }
+}
+```
+
+❌ **DON'T:**
+```csharp
+// ❌ Don't manually construct clients in Aspire projects
+var blobClient = new BlobServiceClient(
+    new Uri("https://mystorageaccount.blob.core.windows.net"),
+    new DefaultAzureCredential());  // ❌ Bypasses Aspire DI, health checks, telemetry
+```
+
+**Why:** Aspire client integration packages (`Aspire.Azure.*`) automatically configure health checks, OpenTelemetry tracing, retry policies, and connection management. Manual client construction bypasses all of these.
+
+**Key packages:**
+| Aspire Package | Registers | DI Method |
+|---|---|---|
+| `Aspire.Azure.Storage.Blobs` | `BlobServiceClient` | `builder.AddAzureBlobClient()` |
+| `Aspire.Azure.Data.Cosmos` | `CosmosClient` | `builder.AddAzureCosmosClient()` |
+| `Aspire.Azure.Security.KeyVault` | `SecretClient` | `builder.AddAzureKeyVaultClient()` |
+| `Aspire.Azure.AI.OpenAI` | `AzureOpenAIClient` | `builder.AddAzureOpenAIClient()` |
+| `Aspire.Azure.Messaging.ServiceBus` | `ServiceBusClient` | `builder.AddAzureServiceBusClient()` |
+
+---
+
+### ASP-7: Aspire DI vs Manual Client Construction (HIGH)
+**Pattern:** Distinguish between Aspire DI-based client registration and manual construction. Use the correct pattern for the project type.
+
+✅ **DO (Aspire project):**
+```csharp
+// In Aspire projects, use builder.AddAzure*() — clients are wired via .WithReference()
+var builder = WebApplication.CreateBuilder(args);
+builder.AddServiceDefaults();
+builder.AddAzureBlobClient("blobs");  // ✅ Name matches AppHost resource name
+
+// Inject via DI
+app.MapGet("/upload", async (BlobServiceClient client) =>
+{
+    // Client is pre-configured with connection, retry, telemetry
+    var container = client.GetBlobContainerClient("uploads");
+    // ...
+});
+```
+
+✅ **DO (Non-Aspire project):**
+```csharp
+// Without Aspire, use Microsoft.Extensions.Azure for DI registration
+using Microsoft.Extensions.Azure;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddAzureClients(clientBuilder =>
+{
+    clientBuilder.AddBlobServiceClient(
+        new Uri($"https://{config["Azure:StorageAccountName"]}.blob.core.windows.net"));
+    clientBuilder.AddSecretClient(
+        new Uri(config["Azure:KeyVaultUrl"]!));
+    clientBuilder.UseCredential(new DefaultAzureCredential());
+});
+```
+
+✅ **DO (Console app / simple sample):**
+```csharp
+// For console apps without DI, construct clients directly
+var credential = new DefaultAzureCredential();
+var blobClient = new BlobServiceClient(
+    new Uri($"https://{accountName}.blob.core.windows.net"), credential);
+```
+
+❌ **DON'T:**
+```csharp
+// ❌ Don't mix patterns — don't manually construct in an Aspire project
+// ❌ Don't use new BlobServiceClient(...) when Aspire.Azure.Storage.Blobs is available
+```
+
+---
+
+## 14a. Azure SDK Dependency Injection Patterns
+
+**What this section covers:** DI registration for Azure SDK clients outside of Aspire, `Microsoft.Extensions.Azure`, and `CancellationToken` propagation.
+
+### DI-1: Microsoft.Extensions.Azure (MEDIUM)
+**Pattern:** For non-Aspire web apps and hosted services, use `Microsoft.Extensions.Azure` (`AddAzureClients`) for DI-friendly Azure SDK client registration.
+
+✅ **DO:**
+```csharp
+using Microsoft.Extensions.Azure;
+using Azure.Identity;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddAzureClients(clientBuilder =>
+{
+    // ✅ Register clients with URIs from configuration
+    clientBuilder.AddBlobServiceClient(
+        new Uri($"https://{builder.Configuration["Azure:StorageAccountName"]}.blob.core.windows.net"));
+    clientBuilder.AddSecretClient(
+        new Uri(builder.Configuration["Azure:KeyVaultUrl"]!));
+    clientBuilder.AddServiceBusClient(
+        $"{builder.Configuration["Azure:ServiceBusNamespace"]}.servicebus.windows.net");
+
+    // ✅ Shared credential for all clients
+    clientBuilder.UseCredential(new DefaultAzureCredential());
+});
+
+// ✅ Inject via constructor
+public class OrderService(ServiceBusClient serviceBusClient)
+{
+    public async Task SendOrderAsync(Order order, CancellationToken cancellationToken)
+    {
+        await using var sender = serviceBusClient.CreateSender("orders");
+        await sender.SendMessageAsync(
+            new ServiceBusMessage(BinaryData.FromObjectAsJson(order)),
+            cancellationToken);
+    }
+}
+```
+
+❌ **DON'T:**
+```csharp
+// ❌ Don't register Azure clients as singletons manually
+builder.Services.AddSingleton(_ => new BlobServiceClient(uri, new DefaultAzureCredential()));
+// ❌ Misses retry policy configuration, credential sharing, and proper lifecycle management
+```
+
+**Why:** `Microsoft.Extensions.Azure` provides a consistent pattern for registering Azure SDK clients with shared credentials, retry policies, and proper lifecycle management.
+
+---
+
+### DI-2: CancellationToken Propagation (MEDIUM)
+**Pattern:** Always pass `CancellationToken` through async call chains. All Azure SDK async methods accept `CancellationToken` as the last parameter.
+
+✅ **DO:**
+```csharp
+// ✅ API endpoint propagates CancellationToken
+app.MapGet("/products", async (
+    CosmosClient cosmosClient,
+    CancellationToken cancellationToken) =>
+{
+    var container = cosmosClient.GetDatabase("mydb").GetContainer("products");
+    var query = new QueryDefinition("SELECT * FROM c");
+
+    using FeedIterator<Product> feed = container.GetItemQueryIterator<Product>(query);
+    var results = new List<Product>();
+    while (feed.HasMoreResults)
+    {
+        FeedResponse<Product> response = await feed.ReadNextAsync(cancellationToken);
+        results.AddRange(response);
+    }
+    return results;
+});
+
+// ✅ Service method accepts and passes CancellationToken
+public async Task<string> GetSecretAsync(string name, CancellationToken cancellationToken = default)
+{
+    KeyVaultSecret secret = await _secretClient.GetSecretAsync(name, cancellationToken: cancellationToken);
+    return secret.Value;
+}
+```
+
+❌ **DON'T:**
+```csharp
+// ❌ Don't drop CancellationToken — request can't be cancelled
+public async Task<string> GetSecretAsync(string name)
+{
+    KeyVaultSecret secret = await _secretClient.GetSecretAsync(name);  // ❌ No cancellation
+    return secret.Value;
+}
+```
+
+**Why:** Without `CancellationToken`, HTTP requests can't be cancelled when clients disconnect, and graceful shutdown is impaired. ASP.NET Core provides `CancellationToken` automatically via endpoint binding.
+
+---
+
+### DI-3: IAsyncEnumerable Streaming Patterns (MEDIUM)
+**Pattern:** Azure SDK uses `AsyncPageable<T>` (which implements `IAsyncEnumerable<T>`) for paginated results. Use `await foreach` for efficient streaming without materializing all results in memory.
+
+✅ **DO:**
+```csharp
+// ✅ Stream results with await foreach
+await foreach (BlobItem blob in containerClient.GetBlobsAsync(cancellationToken: cancellationToken))
+{
+    Console.WriteLine($"Blob: {blob.Name}");
+}
+
+// ✅ Stream Key Vault secrets
+await foreach (SecretProperties secret in secretClient.GetPropertiesOfSecretsAsync(cancellationToken))
+{
+    Console.WriteLine($"Secret: {secret.Name}");
+}
+
+// ✅ Convert to list only when needed
+var allBlobs = new List<BlobItem>();
+await foreach (BlobItem blob in containerClient.GetBlobsAsync(cancellationToken: cancellationToken))
+{
+    allBlobs.Add(blob);
+}
+
+// ✅ Use LINQ with System.Linq.Async for filtering
+// Install: dotnet add package System.Linq.Async
+var largeBlobs = await containerClient.GetBlobsAsync()
+    .Where(b => b.Properties.ContentLength > 1_000_000)
+    .ToListAsync(cancellationToken);
+```
+
+❌ **DON'T:**
+```csharp
+// ❌ Don't call .ToList() on the first page only
+var blobs = containerClient.GetBlobsAsync().AsPages().First();  // ❌ Only first page
+```
+
+**Why:** `AsyncPageable<T>` transparently handles pagination across all Azure SDK list operations. `await foreach` is the idiomatic C# pattern and avoids loading all results into memory at once.
+
+---
+
+## 14b. Azure Functions
+
+**What this section covers:** Azure Functions patterns for .NET, specifically the isolated worker model.
+
+### FUNC-1: Isolated Worker Model (MEDIUM)
+**Pattern:** New Azure Functions projects should use the **isolated worker model** (out-of-process). The in-process model is being deprecated.
+
+✅ **DO:**
+```csharp
+// Program.cs — Isolated worker model
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+var host = new HostBuilder()
+    .ConfigureFunctionsWebApplication()
+    .ConfigureServices(services =>
+    {
+        services.AddApplicationInsightsTelemetryWorkerService();
+        services.ConfigureFunctionsApplicationInsights();
+    })
+    .Build();
+
+host.Run();
+```
+
+```xml
+<!-- .csproj — Isolated worker model -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.*" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.*" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.*" />
+  </ItemGroup>
+</Project>
+```
+
+❌ **DON'T:**
+```csharp
+// ❌ Don't use in-process model for new projects (being deprecated)
+// In-process uses Microsoft.NET.Sdk.Functions and class library pattern
+// [FunctionName("MyFunction")] — this is the old in-process attribute
+```
+
+**Why:** The isolated worker model runs functions in a separate process, giving you full control over dependencies, middleware, and .NET versions. The in-process model is scheduled for deprecation.
 
 ---
 
@@ -2414,12 +2782,12 @@ jobs:
 Use this comprehensive checklist before submitting an Azure SDK .NET sample for review:
 
 ### 🔧 Project Setup
-- [ ] Target framework `net9.0` or `net10.0`
+- [ ] Target framework `net8.0`, `net9.0`, or `net10.0`
 - [ ] `<Nullable>enable</Nullable>` in .csproj
 - [ ] `<ImplicitUsings>enable</ImplicitUsings>` in .csproj
 - [ ] Project metadata (Description, Authors) present
 - [ ] Every NuGet package is used in code (no phantom deps)
-- [ ] Using Track 2 Azure SDK packages (`Azure.*`, not `Microsoft.Azure.*`)
+- [ ] Using Track 2 Azure SDK packages (`Azure.*`, exception: `Microsoft.Azure.Cosmos` is current)
 - [ ] Configuration validated with descriptive errors
 - [ ] `global.json` pins SDK version
 - [ ] `packages.lock.json` committed (if lock file enabled)
@@ -2444,6 +2812,9 @@ Use this comprehensive checklist before submitting an Azure SDK .NET sample for 
 - [ ] Managed identity documented in README
 - [ ] Pagination handled with `await foreach` / `AsyncPageable<T>`
 - [ ] Resource cleanup with `await using` / `IAsyncDisposable`
+- [ ] `CancellationToken` propagated through async call chains
+- [ ] `Microsoft.Extensions.Azure` / `AddAzureClients()` used for DI (web apps)
+- [ ] `IAsyncEnumerable` streaming patterns used (not materializing all pages)
 
 ### 🗄️ Data Services (if applicable)
 - [ ] SQL: Uses `Microsoft.Data.SqlClient` with AAD tokens (not SQL auth)
@@ -2495,6 +2866,9 @@ Use this comprehensive checklist before submitting an Azure SDK .NET sample for 
 - [ ] Service discovery (`https+http://servicename`) used—not hardcoded URLs
 - [ ] Health checks registered for Azure dependencies
 - [ ] `.WithReference()` wires dependencies—not manual env vars
+- [ ] `Aspire.Azure.*` client integration packages used in service projects
+- [ ] `builder.AddAzureBlobClient()` etc. used—not manual `new BlobServiceClient()`
+- [ ] Aspire SDK versions not hardcoded to specific patch (use latest stable)
 
 ### 🧪 CI/CD
 - [ ] `dotnet build --warnaserror` in CI
@@ -2528,7 +2902,6 @@ This skill focuses on the most commonly used Azure services in .NET samples. The
 - Azure App Configuration (`Azure.Data.AppConfiguration`)
 - Azure SignalR Service
 - Azure API Management
-- Azure Functions (isolated worker model)
 
 For samples using these services, apply the core patterns from Sections 1–2 (Project Setup, Azure SDK Client Patterns) and reference service-specific documentation.
 
@@ -2566,9 +2939,13 @@ Consolidation of all documentation links referenced throughout this skill:
 
 ### .NET
 - [.NET Downloads](https://dot.net/download)
+- [.NET Support Policy](https://dotnet.microsoft.com/platform/support/policy)
 - [C# Language Reference](https://learn.microsoft.com/dotnet/csharp/)
 - [System.Text.Json](https://learn.microsoft.com/dotnet/standard/serialization/system-text-json/overview)
 - [Microsoft.Data.SqlClient](https://learn.microsoft.com/sql/connect/ado-net/microsoft-ado-net-sql-server)
+- [Microsoft.Extensions.Azure](https://learn.microsoft.com/dotnet/api/overview/azure/microsoft.extensions.azure-readme)
+- [Azure Functions Isolated Worker](https://learn.microsoft.com/azure/azure-functions/dotnet-isolated-process-guide)
+- [dotnet user-secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets)
 
 ### Microsoft Open Source
 - [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/)
@@ -2582,18 +2959,20 @@ This skill captures **Azure SDK .NET sample patterns** adapted from comprehensiv
 
 ### Severity Breakdown
 - **CRITICAL** (9 rules): Phantom deps, CVE scanning, token refresh, AVM versions, parameter validation, .gitignore, fabricated output, broken links, credentials
-- **HIGH** (23 rules): Client construction, managed identity, pagination, OpenAI config, database patterns, DiskANN guards, batch operations, RBAC, lock files, role assignments, pre-computed data, appsettings, prerequisites, dead code, LICENSE, resource naming, target framework, SDK naming, Service Bus, Key Vault, Aspire AppHost, CI build, network security
-- **MEDIUM** (29 rules): Client options, retry policies, SQL parameters, embeddings, error handling, JSON loading, troubleshooting, azd structure, nullable types, version pinning, SAS fallback, dimensions, placeholder docs, resource cleanup, API versions, governance files, setup instructions, configuration, .NET version docs, Aspire ServiceDefaults, service discovery, health checks, Event Hubs, metadata, host types, Document Intelligence, Storage patterns, project metadata, package legitimacy
+- **HIGH** (25 rules): Client construction, managed identity, pagination, OpenAI config, database patterns, DiskANN guards, batch operations, RBAC, lock files, role assignments, pre-computed data, appsettings, prerequisites, dead code, LICENSE, resource naming, target framework, SDK naming, Service Bus, Key Vault, Aspire AppHost, Aspire client integration packages, Aspire DI vs manual, CI build, network security
+- **MEDIUM** (33 rules): Client options, retry policies, SQL parameters, embeddings, error handling, JSON loading, troubleshooting, azd structure, nullable types, version pinning, SAS fallback, dimensions, placeholder docs, resource cleanup, API versions, governance files, setup instructions, configuration, .NET version docs, Aspire ServiceDefaults, service discovery, health checks, Event Hubs, metadata, host types, Document Intelligence, Storage patterns, project metadata, package legitimacy, Microsoft.Extensions.Azure DI, CancellationToken propagation, IAsyncEnumerable streaming, Azure Functions isolated worker
 - **LOW** (4 rules): API version docs, .editorconfig, .NET version strategy, Aspire dashboard/OTLP
 
 ### Service Coverage
-- **Core SDK**: Authentication, credentials, managed identities, client patterns, token management, pagination, resource cleanup
+- **Core SDK**: Authentication, credentials, managed identities, client patterns, token management, pagination, resource cleanup, CancellationToken propagation, IAsyncEnumerable streaming
+- **DI Patterns**: Microsoft.Extensions.Azure (AddAzureClients), Aspire client integration packages (Aspire.Azure.*)
 - **Data**: Cosmos DB, Azure SQL (Microsoft.Data.SqlClient), Storage (Blob/Table/File), batch operations
-- **AI**: Azure OpenAI (embeddings, chat), Document Intelligence, Speech, vector dimensions
+- **AI**: Azure OpenAI (embeddings, chat, System.ClientModel retry), Document Intelligence, Speech, vector dimensions
 - **Messaging**: Service Bus, Event Hubs, checkpoint management
 - **Security**: Key Vault (secrets, keys, certificates)
 - **Vector Search**: Azure SQL DiskANN, Cosmos DB, AI Search
 - **Infrastructure**: Bicep/Terraform, AVM modules, azd integration, RBAC, CAF naming
-- **.NET Aspire**: AppHost orchestration, ServiceDefaults, service discovery, health checks, OpenTelemetry
+- **.NET Aspire**: AppHost orchestration, ServiceDefaults, service discovery, health checks, OpenTelemetry, client integration packages
+- **Azure Functions**: Isolated worker model
 
 Apply these patterns to ensure Azure SDK .NET samples are **secure, accurate, maintainable, and ready for publication**.
