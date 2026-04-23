@@ -755,7 +755,7 @@ for pager.More() {
 // ✅ Cosmos DB—iterate query results
 queryPager := containerClient.NewQueryItemsPager(
     "SELECT * FROM c WHERE c.category = @category",
-    azcosmos.PartitionKey{}.AppendString("electronics"),
+    azcosmos.NewPartitionKeyString("electronics"),
     &azcosmos.QueryOptions{
         QueryParameters: []azcosmos.QueryParameter{
             {Name: "@category", Value: "electronics"},
