@@ -19,15 +19,15 @@ Use this skill when reviewing **Rust code samples** for Azure SDKs intended for 
 - **azd integration** (azure.yaml structure, hooks, service definitions)
 - **Rust idioms** (ownership, borrowing, error propagation, async runtimes, RAII cleanup)
 
-> **⚠️ SDK Maturity Note:** The Azure SDK for Rust is still evolving. Many crates (e.g., `azure_storage_blobs`, `azure_identity`, `azure_core`) are available on crates.io but some are in **preview** or **alpha**. Crate APIs may change between versions. This skill focuses on patterns that will remain stable (auth, error handling, async, project structure) and notes where crate APIs may change. Always check [crates.io](https://crates.io/search?q=azure_) and the [Azure SDK for Rust GitHub repo](https://github.com/Azure/azure-sdk-for-rust) for the latest status.
+> **⚠️ SDK Maturity Note:** The Azure SDK for Rust is still evolving. Many crates (e.g., `azure_storage_blob`, `azure_identity`, `azure_core`) are available on crates.io but some are in **preview** or **alpha**. Crate APIs may change between versions. This skill focuses on patterns that will remain stable (auth, error handling, async, project structure) and notes where crate APIs may change. Always check [crates.io](https://crates.io/search?q=azure_) and the [Azure SDK for Rust GitHub repo](https://github.com/Azure/azure-sdk-for-rust) for the latest status.
 
-**Total rules: 66** (9 CRITICAL, 25 HIGH, 29 MEDIUM, 3 LOW)
+**Total rules: 70** (9 CRITICAL, 24 HIGH, 32 MEDIUM, 5 LOW)
 
 ---
 
 ## Severity Legend
 
-- **CRITICAL**: Security vulnerability or sample will not compile/run. Must fix before any publication.
+- **CRITICAL**: Security vulnerability or sample will not run. Must fix before any publication.
 - **HIGH**: Major quality issue that will confuse users or cause production failures. Fix before merge.
 - **MEDIUM**: Best practice violation. Should fix before publication for maintainability.
 - **LOW**: Polish item, nice-to-have improvement. Address during review cycles.
@@ -76,7 +76,7 @@ These issues always block publication. Samples with any of these must be rejecte
 **What this section covers:** Cargo project structure, Rust edition, dependency management, environment variables, and tooling configuration. These foundational patterns ensure samples compile correctly and run reliably across environments.
 
 ### PS-1: Rust Edition (HIGH)
-**Pattern:** Use Rust 2021 edition (latest stable). Set explicitly in Cargo.toml.
+**Pattern:** Use Rust 2021 edition (latest stable). Set explicitly in Cargo.toml. Note: Rust 2024 edition is emerging — see notes below.
 
 ✅ **DO:**
 ```toml
@@ -98,6 +98,8 @@ edition = "2018"  # ❌ Outdated edition
 ```
 
 **Why:** Rust 2021 edition includes important language improvements (disjoint capture in closures, new prelude items). `rust-version` documents the minimum toolchain required.
+
+> **⚠️ 2024 Edition Note:** Rust 2024 edition changes some safety rules — notably `std::env::set_var` and `std::env::remove_var` are `unsafe` in 2024. If targeting 2024 edition, wrap env var mutations in `unsafe {}` blocks. Most samples should use 2021 for now, with 2024 readiness notes where relevant.
 
 ---
 
@@ -137,9 +139,9 @@ edition = "2021"
 ✅ **DO:**
 ```toml
 [dependencies]
-azure_identity = "0.22"           # ✅ Used for DefaultAzureCredential
-azure_storage_blobs = "0.22"      # ✅ Used in src/main.rs
-azure_core = "0.22"               # ✅ Used for error types, pipeline
+azure_identity = "0.x"  # ✅ Used for DefaultAzureCredential
+azure_storage_blob = "0.x"  # ✅ Used in src/main.rs
+azure_core = "0.x"  # ✅ Used for error types, pipeline
 tokio = { version = "1", features = ["full"] }  # ✅ Async runtime
 serde = { version = "1", features = ["derive"] }  # ✅ Used for deserialization
 serde_json = "1"                  # ✅ Used for JSON parsing
@@ -149,9 +151,9 @@ dotenvy = "0.15"                  # ✅ Used for .env loading
 ❌ **DON'T:**
 ```toml
 [dependencies]
-azure_identity = "0.22"
-azure_storage_blobs = "0.22"
-azure_cosmos = "0.22"             # ❌ Listed but never used
+azure_identity = "0.x"  # Check crates.io for latest
+azure_storage_blob = "0.x"  # Check crates.io for latest
+azure_cosmos = "0.x"  # ❌ Listed but never used
 reqwest = "0.12"                  # ❌ Not imported anywhere
 rand = "0.8"                      # ❌ Phantom dependency
 ```
@@ -165,21 +167,20 @@ rand = "0.8"                      # ❌ Phantom dependency
 
 ✅ **DO:**
 ```toml
-# ✅ Official Azure SDK for Rust crates
+# ✅ Official Azure SDK for Rust crates (verify names on crates.io)
 [dependencies]
-azure_identity = "0.22"
-azure_core = "0.22"
-azure_storage_blobs = "0.22"
-azure_storage = "0.22"
-azure_security_keyvault = "0.22"
-azure_messaging_servicebus = "0.22"  # If available
-azure_data_cosmos = "0.22"           # If available
+azure_identity = "0.x"                    # Check crates.io for latest version
+azure_core = "0.x"                        # Check crates.io for latest version
+azure_storage_blob = "0.x"               # Check crates.io for latest version
+azure_security_keyvault_secrets = "0.x"  # Check crates.io for latest version
+azure_cosmos = "0.x"  # azure_messaging_servicebus — check crates.io for availability and current name
+# azure_messaging_event_hubs — check crates.io for availability and current name
 ```
 
 ```rust
 // ✅ Official crate imports
 use azure_identity::DefaultAzureCredential;
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::prelude::*;
 use azure_core::Error as AzureError;
 ```
 
@@ -359,9 +360,9 @@ cargo audit
 ✅ **DO:**
 ```toml
 [dependencies]
-azure_identity = "0.22"        # ✅ Official — check crates.io/crates/azure_identity
-azure_storage_blobs = "0.22"   # ✅ Official
-azure_core = "0.22"            # ✅ Official
+azure_identity = "0.x"  # ✅ Official — check crates.io/crates/azure_identity
+azure_storage_blob = "0.x"  # ✅ Official
+azure_core = "0.x"  # ✅ Official
 ```
 
 ❌ **DON'T:**
@@ -383,8 +384,8 @@ az_storage = "0.1.0"           # ❌ Not official package
 ```toml
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-azure_identity = { version = "0.22", features = ["enable_reqwest"] }
-azure_storage_blobs = { version = "0.22", default-features = false, features = ["enable_reqwest"] }
+azure_identity = { version = "0.x", features = ["enable_reqwest"] }  # Check crates.io for latest; feature name may change
+azure_storage_blob = { version = "0.x", default-features = false, features = ["enable_reqwest"] }  # Check crates.io for latest
 serde = { version = "1", features = ["derive"] }
 ```
 
@@ -393,7 +394,7 @@ serde = { version = "1", features = ["derive"] }
 ## Dependencies
 
 This sample uses the `reqwest` HTTP backend for Azure SDK crates.
-Ensure `enable_reqwest` feature is enabled (default in most configurations).
+Check the crate documentation for current feature flag names — they may evolve.
 ```
 
 ❌ **DON'T:**
@@ -401,7 +402,7 @@ Ensure `enable_reqwest` feature is enabled (default in most configurations).
 [dependencies]
 # ❌ Enabling all features when only a subset is needed
 tokio = { version = "1", features = ["full"] }  # OK for samples
-azure_identity = { version = "0.22", features = ["enable_reqwest", "enable_reqwest_rustls"] }
+azure_identity = { version = "0.x", features = ["enable_reqwest", "enable_reqwest_rustls"] }
 # ❌ Don't enable conflicting TLS backends
 ```
 
@@ -419,7 +420,7 @@ azure_identity = { version = "0.22", features = ["enable_reqwest", "enable_reqwe
 ✅ **DO:**
 ```rust
 use azure_identity::DefaultAzureCredential;
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::prelude::*;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -427,16 +428,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ✅ Create credential once, wrap in Arc for sharing
     let credential = Arc::new(DefaultAzureCredential::new()?);
 
-    // ✅ Storage Blob
+    // ✅ Storage Blob — pass None for default ClientOptions
     let blob_service_client = BlobServiceClient::new(
         &format!("https://{}.blob.core.windows.net", account_name),
         credential.clone(),
+        None,  // Use default ClientOptions
     );
 
     // ✅ Reuse same credential for another client
-    let keyvault_client = azure_security_keyvault::SecretClient::new(
+    let keyvault_client = azure_security_keyvault_secrets::SecretClient::new(
         &config.keyvault_url,
         credential.clone(),
+        None,  // Use default ClientOptions
     )?;
 
     Ok(())
@@ -459,37 +462,35 @@ let client2 = SecretClient::new(url, Arc::new(DefaultAzureCredential::new()?));
 ---
 
 ### AZ-2: Client Options (MEDIUM)
-**Pattern:** Configure retry policies, timeouts, and transport options for production-ready samples.
+**Pattern:** Configure retry policies, timeouts, and transport options for production-ready samples. The Rust SDK uses struct initialization, not builder pattern.
 
 ✅ **DO:**
 ```rust
 use azure_core::ClientOptions;
-use azure_core::RetryOptions;
 use std::time::Duration;
 
-let options = ClientOptions::default()
-    .retry(RetryOptions::default()
-        .max_retries(3)
-        .delay(Duration::from_secs(1))
-        .max_delay(Duration::from_secs(30))
-    );
+// ✅ Struct initialization with defaults (Rust SDK pattern)
+let options = ClientOptions {
+    // Configure retry, transport, etc. as needed
+    ..Default::default()
+};
 
-let blob_service_client = BlobServiceClient::builder(
+// ✅ Pass options to client constructor
+let blob_service_client = BlobServiceClient::new(
     &format!("https://{}.blob.core.windows.net", account_name),
     credential.clone(),
-)
-.client_options(options)
-.build();
+    Some(options),
+);
 ```
 
 ❌ **DON'T:**
 ```rust
 // ❌ Don't omit client options for samples that do meaningful work
-let client = BlobServiceClient::new(url, credential.clone());
+let client = BlobServiceClient::new(url, credential.clone(), None);
 // No retry policy, no timeout configuration
 ```
 
-> **⚠️ Preview Note:** Client options API may vary across Azure SDK Rust crate versions. Check the specific crate's documentation for the current builder API.
+> **⚠️ Preview Note:** Client options API may vary across Azure SDK Rust crate versions. Check the specific crate's documentation for the current `ClientOptions` struct fields and initialization patterns.
 
 ---
 
@@ -509,11 +510,10 @@ let credential = Arc::new(DefaultAzureCredential::new()?);
 let credential = Arc::new(ManagedIdentityCredential::default());
 
 // ✅ User-assigned (when multiple identities needed)
+// Check azure_identity docs for current constructor — API may vary
 let client_id = std::env::var("AZURE_CLIENT_ID")?;
 let credential = Arc::new(
-    ManagedIdentityCredential::builder()
-        .client_id(&client_id)
-        .build()
+    ManagedIdentityCredential::new(Some(&client_id))?
 );
 
 // Document in README:
@@ -548,7 +548,7 @@ let token_response = credential
     .get_token(&["https://database.windows.net/.default"])
     .await?;
 
-let token = &token_response.token.secret;
+let token = &token_response.token;
 
 // ✅ Implement token refresh for long-running operations
 async fn get_fresh_token(
@@ -556,7 +556,7 @@ async fn get_fresh_token(
     scope: &str,
 ) -> Result<String, azure_core::Error> {
     let response = credential.get_token(&[scope]).await?;
-    Ok(response.token.secret.clone())
+    Ok(response.token.clone())
 }
 
 // ✅ Refresh before long operations
@@ -590,11 +590,13 @@ use azure_identity::DefaultAzureCredential;
 let credential = DefaultAzureCredential::new()?;
 
 // Document in README:
-// > **Authentication:** This sample uses `DefaultAzureCredential`, which tries:
-// > 1. Environment variables (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET)
-// > 2. Managed identity (App Service, Functions, Container Apps)
-// > 3. Azure CLI (`az login`)
-// > 4. Azure PowerShell
+// > **Authentication:** This sample uses `DefaultAzureCredential`, which tries
+// > multiple credential sources in order. The exact chain order in the Rust SDK
+// > may differ from other language SDKs — check the current `azure_identity` docs
+// > for the authoritative order. Typical sources include:
+// > - Environment variables (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET)
+// > - Managed identity (App Service, Functions, Container Apps)
+// > - Azure CLI (`az login`)
 ```
 
 ---
@@ -604,7 +606,7 @@ let credential = DefaultAzureCredential::new()?;
 
 ✅ **DO:**
 ```rust
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::prelude::*;
 
 async fn upload_blob(
     client: &BlobServiceClient,
@@ -653,7 +655,7 @@ std::mem::forget(client);  // ❌ Resource leak
 
 ✅ **DO:**
 ```rust
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::prelude::*;
 use futures::StreamExt;
 
 // ✅ Iterate all pages of blobs
@@ -746,27 +748,32 @@ let config = AzureConfig::new()
 ---
 
 ### AI-2: Embedding Dimension Validation (MEDIUM)
-**Pattern:** Embeddings must match the declared vector storage dimension. Validate before insertion.
+**Pattern:** Always validate that embedding vector dimensions match the target index/column configuration before insertion. Dimension mismatches cause silent data corruption or runtime errors.
 
 ✅ **DO:**
 ```rust
 const EMBEDDING_MODEL: &str = "text-embedding-3-small";
 const VECTOR_DIMENSION: usize = 1536;
 
-fn validate_embedding(embedding: &[f32]) -> Result<(), String> {
-    if embedding.len() != VECTOR_DIMENSION {
+/// Validate embedding dimensions against index configuration.
+fn validate_embedding(
+    embedding: &[f32],
+    expected_dim: usize,
+    model_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if embedding.len() != expected_dim {
         return Err(format!(
-            "Embedding dimension mismatch: expected {}, got {}\n\
-             Ensure model '{}' matches storage schema.",
-            VECTOR_DIMENSION, embedding.len(), EMBEDDING_MODEL
-        ));
+            "Vector dimension mismatch: model '{}' produced {} dimensions, \
+             but index expects {}. Update model or index configuration.",
+            model_name, embedding.len(), expected_dim
+        ).into());
     }
     Ok(())
 }
 
-// ✅ Validate before inserting
-let embedding = get_embedding(&text).await?;
-validate_embedding(&embedding)?;
+// ✅ Validate before every insertion
+let embedding = get_embedding(&text, EMBEDDING_MODEL).await?;
+validate_embedding(&embedding, VECTOR_DIMENSION, EMBEDDING_MODEL)?;
 insert_embedding(&embedding).await?;
 ```
 
@@ -804,7 +811,7 @@ let response = http_client
         "{}/documentintelligence/documentModels/prebuilt-layout:analyze?api-version=2024-11-30",
         endpoint
     ))
-    .bearer_auth(token.token.secret())
+    .bearer_auth(&token.token)
     .header("Content-Type", "application/pdf")
     .body(pdf_bytes)
     .send()
@@ -832,41 +839,30 @@ let response = http_client
 
 ---
 
-### AI-4: Vector Dimension Validation (MEDIUM)
-**Pattern:** Always validate that embedding vector dimensions match the target index/column configuration before insertion. Dimension mismatches cause silent data corruption or runtime errors.
+### AI-4: API Version Documentation (MEDIUM)
+**Pattern:** When using Azure AI services via REST API (no official SDK crate), always document the API version used and note where to find the latest version.
 
 ✅ **DO:**
 ```rust
-/// Validate embedding dimensions against index configuration.
-fn validate_dimensions(
-    embedding: &[f32],
-    expected_dim: usize,
-    model_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if embedding.len() != expected_dim {
-        return Err(format!(
-            "Vector dimension mismatch: model '{}' produced {} dimensions, \
-             but index expects {}. Update model or index configuration.",
-            model_name, embedding.len(), expected_dim
-        ).into());
-    }
-    Ok(())
-}
+// ✅ Document API version in code and README
+const API_VERSION: &str = "2024-10-21";
 
-// ✅ Validate before every insertion
-const INDEX_DIMENSIONS: usize = 1536;
-let embedding = get_embedding(&text, "text-embedding-3-small").await?;
-validate_dimensions(&embedding, INDEX_DIMENSIONS, "text-embedding-3-small")?;
+let url = format!(
+    "{}/openai/deployments/{}/chat/completions?api-version={}",
+    endpoint, deployment, API_VERSION
+);
+
+// In README:
+// > This sample uses Azure OpenAI API version 2024-10-21.
+// > Check https://learn.microsoft.com/azure/ai-services/openai/reference
+// > for the latest stable API version.
 ```
 
 ❌ **DON'T:**
 ```rust
-// ❌ Don't insert without dimension check — silent corruption
-let embedding = get_embedding(&text, model).await?;
-upsert_document(&id, &embedding).await?;  // Might be 3072-dim into 1536-dim index
-
-// ❌ Don't assume all models produce same dimensions
-// text-embedding-3-small = 1536, text-embedding-3-large = 3072
+// ❌ Don't hardcode API version without documentation
+let url = format!("{}/openai/deployments/{}/chat/completions?api-version=2023-05-15", endpoint, deployment);
+// ❌ No note about which version, why, or where to find updates
 ```
 
 ---
@@ -876,11 +872,11 @@ upsert_document(&id, &embedding).await?;  // Might be 3072-dim into 1536-dim ind
 **What this section covers:** Database and storage client patterns, connection management, transactions, batching, and query parameterization for Rust Azure SDK crates.
 
 ### DB-1: Cosmos DB Patterns (HIGH)
-**Pattern:** Use `azure_data_cosmos` crate with AAD credentials. Handle partitioned containers properly.
+**Pattern:** Use `azure_cosmos` crate with AAD credentials. Handle partitioned containers properly.
 
 ✅ **DO:**
 ```rust
-use azure_data_cosmos::prelude::*;
+use azure_cosmos::prelude::*;
 use azure_identity::DefaultAzureCredential;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -898,6 +894,7 @@ let credential = Arc::new(DefaultAzureCredential::new()?);
 let client = CosmosClient::new(
     &config.cosmos_endpoint,
     credential.clone(),
+    None,  // Use default ClientOptions
 );
 
 let database = client.database_client("mydb");
@@ -935,7 +932,7 @@ let results = container
     .into_stream();
 ```
 
-> **⚠️ Preview Note:** The `azure_data_cosmos` crate API may change. Check the latest version on crates.io.
+> **⚠️ Preview Note:** The `azure_cosmos` crate API may change. Check the latest version on crates.io.
 
 ---
 
@@ -963,7 +960,7 @@ let mut config = Config::new();
 config.host(&config_values.sql_server);
 config.port(1433);
 config.database(&config_values.sql_database);
-config.authentication(AuthMethod::aad_token(token.token.secret.clone()));
+config.authentication(AuthMethod::aad_token(token.token.clone()));
 config.encryption(tiberius::EncryptionLevel::Required);
 config.trust_cert();
 
@@ -1084,11 +1081,11 @@ for item in &items {
 ---
 
 ### DB-5: Azure Storage (MEDIUM)
-**Pattern:** Use `azure_storage_blobs` crate with `DefaultAzureCredential`.
+**Pattern:** Use `azure_storage_blob` crate with `DefaultAzureCredential`.
 
 ✅ **DO:**
 ```rust
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::prelude::*;
 use azure_identity::DefaultAzureCredential;
 use std::sync::Arc;
 use futures::StreamExt;
@@ -1126,7 +1123,46 @@ while let Some(page) = stream.next().await {
 }
 ```
 
-> **⚠️ Preview Note:** The `azure_storage_blobs` API may change between versions. Check the latest documentation.
+> **⚠️ Preview Note:** The `azure_storage_blob` API may change between versions. Check the latest documentation.
+
+---
+
+### DB-6: Storage SAS Token Fallback (MEDIUM)
+**Pattern:** When `DefaultAzureCredential` is not available (e.g., client-side scenarios), use SAS tokens as a fallback. Never hardcode SAS tokens — generate them server-side or from environment variables.
+
+✅ **DO:**
+```rust
+use azure_storage_blob::prelude::*;
+
+// ✅ Primary: Use DefaultAzureCredential (preferred)
+// ✅ Fallback: SAS token from environment variable
+let blob_service_client = if let Ok(sas_token) = std::env::var("AZURE_STORAGE_SAS_TOKEN") {
+    // SAS fallback for environments without managed identity
+    BlobServiceClient::with_sas_token(
+        &format!("https://{}.blob.core.windows.net", account_name),
+        &sas_token,
+    )?
+} else {
+    // Preferred: AAD credential
+    let credential = Arc::new(DefaultAzureCredential::new()?);
+    BlobServiceClient::new(
+        &format!("https://{}.blob.core.windows.net", account_name),
+        credential,
+        None,
+    )
+};
+```
+
+❌ **DON'T:**
+```rust
+// ❌ Don't hardcode SAS tokens
+let client = BlobServiceClient::with_sas_token(
+    &url,
+    "sv=2022-11-02&ss=b&srt=sco&sp=rwdlacup&se=2025-12-31..."  // ❌ Hardcoded SAS
+)?;
+```
+
+> **⚠️ Note:** SAS token API may differ in the current `azure_storage_blob` crate — check documentation. The pattern of preferring AAD credentials over SAS tokens is the important takeaway.
 
 ---
 
@@ -1134,12 +1170,13 @@ while let Some(page) = stream.next().await {
 
 **What this section covers:** Messaging patterns for Azure Service Bus and Event Hubs in Rust. Note that official Rust crates may be in preview or not yet available for all messaging services.
 
-### MSG-1: Service Bus Patterns (HIGH)
-**Pattern:** Use `azure_messaging_servicebus` crate if available, or REST API via `azure_core`.
+### MSG-1: Service Bus Patterns (LOW)
+**Pattern:** Use the official Service Bus crate if available on crates.io (check for `azure_messaging_servicebus` or similar), or REST API via `azure_core`.
 
 ✅ **DO:**
 ```rust
-// ✅ If azure_messaging_servicebus crate is available:
+// ✅ Check crates.io for current Service Bus crate name and availability
+// The example below uses a hypothetical API — verify against actual crate docs
 use azure_messaging_servicebus::prelude::*;
 use azure_identity::DefaultAzureCredential;
 use std::sync::Arc;
@@ -1178,13 +1215,14 @@ for message in &messages {
 
 ---
 
-### MSG-2: Event Hubs Patterns (MEDIUM)
-**Pattern:** Use `azure_messaging_eventhubs` crate for Event Hubs producer/consumer patterns. Always use AAD authentication and handle partitioned event streams correctly.
+### MSG-2: Event Hubs Patterns (LOW)
+**Pattern:** Check crates.io for the Event Hubs crate (e.g., `azure_messaging_event_hubs` or similar). Always use AAD authentication and handle partitioned event streams correctly.
 
 ✅ **DO:**
 ```rust
-// ✅ If azure_messaging_eventhubs crate is available:
-use azure_messaging_eventhubs::producer::ProducerClient;
+// ✅ Check crates.io for current Event Hubs crate name and availability
+// The example below uses a hypothetical API — verify against actual crate docs
+use azure_messaging_event_hubs::producer::ProducerClient;
 use azure_identity::DefaultAzureCredential;
 use std::sync::Arc;
 
@@ -1224,16 +1262,16 @@ for payload in &payloads {
 
 ---
 
-## 6. Key Vault
+## 6. Key Vault and Secrets Management
 
-**What this section covers:** Secure secrets storage and retrieval using Azure Key Vault with the `azure_security_keyvault` crate.
+**What this section covers:** Secure secrets storage and retrieval using Azure Key Vault with the `azure_security_keyvault_secrets` crate.
 
 ### KV-1: Key Vault Client Patterns (HIGH)
-**Pattern:** Use `azure_security_keyvault` crate with `DefaultAzureCredential`.
+**Pattern:** Use `azure_security_keyvault_secrets` crate with `DefaultAzureCredential`.
 
 ✅ **DO:**
 ```rust
-use azure_security_keyvault::prelude::*;
+use azure_security_keyvault_secrets::prelude::*;
 use azure_identity::DefaultAzureCredential;
 use std::sync::Arc;
 
@@ -1243,6 +1281,7 @@ let credential = Arc::new(DefaultAzureCredential::new()?);
 let secret_client = SecretClient::new(
     &config.keyvault_url,
     credential.clone(),
+    None,  // Use default ClientOptions
 )?;
 
 // ✅ Set a secret
@@ -1262,7 +1301,7 @@ let db_password = "P@ssw0rd123";  // ❌ Use Key Vault
 println!("Secret: {}", secret.value);  // OK in samples, not production
 ```
 
-> **⚠️ Preview Note:** Check crates.io for `azure_security_keyvault` availability and current API.
+> **⚠️ Preview Note:** Check crates.io for `azure_security_keyvault_secrets` availability and current API.
 
 ---
 
@@ -1710,14 +1749,14 @@ repo/
 
 ---
 
-### HYG-3: Dead Code (HIGH)
+### HYG-3: Dead Code (MEDIUM)
 **Pattern:** Remove unused files, functions, and imports. Commented-out code confuses users.
 
 ✅ **DO:**
 ```rust
 // Only import what you use
 use azure_identity::DefaultAzureCredential;
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::prelude::*;
 ```
 
 ❌ **DON'T:**
@@ -1729,7 +1768,7 @@ use azure_storage_blobs::prelude::*;
 //     // This was the old way...
 // }
 
-use azure_storage_blobs::prelude::*;
+use azure_storage_blob::prelude::*;
 ```
 
 **Why:** Dead code significantly confuses users trying to learn from samples. Rust's compiler warns about unused imports—heed those warnings.
@@ -2252,16 +2291,23 @@ fn process_items(items: Vec<Product>) {  // ❌ Takes ownership, forces caller t
 ---
 
 ### RS-2: Async Runtime (tokio) Configuration (HIGH)
-**Pattern:** Use `tokio` as the async runtime. Configure appropriately for sample complexity.
+**Pattern:** Use `tokio` as the async runtime. Configure appropriately for sample complexity. Consider runtime flavor for resource-constrained environments.
 
 ✅ **DO:**
 ```rust
-// ✅ Simple sample — use tokio::main macro with full features
+// ✅ Simple sample — use tokio::main macro with full features (multi-thread default)
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config()?;
     run_sample(&config).await?;
     Ok(())
+}
+
+// ✅ For Azure Functions or resource-constrained environments:
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Single-threaded runtime — lower overhead, suitable for simple samples
+    run_sample().await
 }
 
 // ✅ Cargo.toml — enable full tokio features for samples
@@ -2285,6 +2331,12 @@ async fn run_parallel_uploads(
     futures::future::try_join_all(futures).await?;
     Ok(())
 }
+
+// ✅ For CPU-heavy work, use spawn_blocking to avoid starving the async runtime
+let result = tokio::task::spawn_blocking(move || {
+    // CPU-intensive computation (e.g., hashing, compression, parsing large files)
+    compute_hash(&large_data)
+}).await??;
 ```
 
 ❌ **DON'T:**
@@ -2293,7 +2345,7 @@ async fn run_parallel_uploads(
 #[tokio::main]
 async fn main() {
     let data = std::fs::read_to_string("large_file.json").unwrap();  // ❌ Blocking IO in async
-    // Use tokio::fs::read_to_string for large files
+    // Use tokio::fs::read_to_string for large files, or spawn_blocking for CPU work
 }
 
 // ❌ Don't mix async runtimes
@@ -2398,14 +2450,14 @@ println!("Error: {}", e);
 # Cargo.toml
 [features]
 default = ["storage"]
-storage = ["azure_storage_blobs"]
+storage = ["azure_storage_blob"]
 ai = ["async-openai"]
 vector-search = ["ai"]
 
 [dependencies]
-azure_identity = "0.22"
-azure_core = "0.22"
-azure_storage_blobs = { version = "0.22", optional = true }
+azure_identity = "0.x"       # Check crates.io for latest
+azure_core = "0.x"           # Check crates.io for latest
+azure_storage_blob = { version = "0.x", optional = true }   # Check crates.io for latest
 async-openai = { version = "0.25", optional = true }
 ```
 
@@ -2420,6 +2472,68 @@ async fn generate_embedding(text: &str) -> Result<Vec<f32>, Box<dyn Error>> {
 #[cfg(not(feature = "ai"))]
 async fn generate_embedding(_text: &str) -> Result<Vec<f32>, Box<dyn Error>> {
     Err("AI feature not enabled. Build with: cargo build --features ai".into())
+}
+```
+
+---
+
+### RS-6: Send + Sync Bounds for Async Use (HIGH)
+**Pattern:** Azure SDK types shared across async tasks must be `Send + Sync`. Ensure your types that wrap SDK clients satisfy these bounds.
+
+✅ **DO:**
+```rust
+use std::sync::Arc;
+use azure_identity::DefaultAzureCredential;
+
+// ✅ Arc<DefaultAzureCredential> is Send + Sync — safe to share across tasks
+let credential = Arc::new(DefaultAzureCredential::new()?);
+
+// ✅ Spawn tasks that share the credential
+let cred = credential.clone();
+let handle = tokio::spawn(async move {
+    // cred is Send + Sync, so this compiles
+    let token = cred.get_token(&["https://storage.azure.com/.default"]).await?;
+    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(token)
+});
+```
+
+❌ **DON'T:**
+```rust
+// ❌ Don't use Rc<T> (not Send) in async code shared across tasks
+use std::rc::Rc;
+let credential = Rc::new(DefaultAzureCredential::new()?);  // ❌ Rc is !Send
+// tokio::spawn(async move { credential.get_token(...) })  // Won't compile
+```
+
+**Why:** Tokio's multi-threaded runtime requires futures to be `Send`. All Azure SDK client types are designed to be `Send + Sync` when wrapped in `Arc`.
+
+---
+
+### RS-7: TokenCredential Trait Bounds (MEDIUM)
+**Pattern:** When writing generic functions that accept any Azure credential, use `TokenCredential` trait bounds with appropriate lifetime and Send/Sync constraints.
+
+✅ **DO:**
+```rust
+use azure_core::auth::TokenCredential;
+use std::sync::Arc;
+
+// ✅ Accept any credential type via trait object
+async fn get_storage_token(
+    credential: &dyn TokenCredential,
+) -> Result<String, azure_core::Error> {
+    let response = credential
+        .get_token(&["https://storage.azure.com/.default"])
+        .await?;
+    Ok(response.token.clone())
+}
+
+// ✅ Or accept via Arc for shared ownership
+async fn create_clients(
+    credential: Arc<dyn TokenCredential>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let blob_client = BlobServiceClient::new(url, credential.clone(), None);
+    let kv_client = SecretClient::new(kv_url, credential.clone(), None)?;
+    Ok(())
 }
 ```
 
@@ -2475,6 +2589,9 @@ mod tests {
     #[test]
     fn test_config_loading() {
         // ✅ Test configuration validation
+        // ⚠️ Note: std::env::set_var is `unsafe` in Rust 2024 edition.
+        // For 2021 edition this is safe, but for 2024 wrap in unsafe {}:
+        //   unsafe { std::env::set_var("KEY", "value"); }
         std::env::set_var("AZURE_STORAGE_ACCOUNT_NAME", "testaccount");
         std::env::set_var("AZURE_KEYVAULT_URL", "https://test.vault.azure.net/");
 
@@ -2498,6 +2615,29 @@ mod tests {
     }
 }
 ```
+
+---
+
+### CI-3: cargo-deny for License and Vulnerability Auditing (MEDIUM)
+**Pattern:** Use `cargo deny check` in CI to audit licenses and detect known vulnerabilities in the dependency tree.
+
+✅ **DO:**
+```yaml
+# .github/workflows/ci.yml (add step)
+- run: cargo install cargo-deny && cargo deny check
+```
+
+```toml
+# deny.toml
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"]
+```
+
+**Why:** `cargo deny` goes beyond `cargo audit` — it also checks license compatibility, duplicate crate versions, and banned crates. Essential for Azure samples that must meet Microsoft Open Source compliance.
 
 ---
 
@@ -2540,11 +2680,12 @@ Use this comprehensive checklist before submitting an Azure SDK Rust sample for 
 - [ ] `Result<T, E>` and `?` operator for all fallible operations
 - [ ] No `unwrap()` or `expect()` in main code paths
 - [ ] Custom error types with `thiserror` for complex samples
-- [ ] `Arc<T>` for sharing resources across async tasks
+- [ ] `Arc<T>` for sharing resources across async tasks (must be `Send + Sync`)
 - [ ] References (`&T`) preferred over cloning where possible
-- [ ] `tokio` runtime configured correctly
+- [ ] `tokio` runtime configured correctly (consider `flavor = "current_thread"` for constrained envs)
 - [ ] `tracing` for structured logging (complex samples)
 - [ ] Feature flags for optional dependencies
+- [ ] `spawn_blocking` used for CPU-heavy work in async context
 
 ### 🗄️ Data Services (if applicable)
 - [ ] SQL: tiberius with AAD token authentication
@@ -2584,6 +2725,7 @@ Use this comprehensive checklist before submitting an Azure SDK Rust sample for 
 - [ ] `cargo fmt --check` in CI
 - [ ] `cargo test` in CI
 - [ ] `cargo audit` in CI
+- [ ] `cargo deny check` in CI (license + vulnerability audit)
 - [ ] Build succeeds in CI
 
 ---
@@ -2608,15 +2750,15 @@ The Azure SDK for Rust is still maturing. The following shows approximate crate 
 ### Available on crates.io (check for latest versions):
 - `azure_identity` — Authentication (DefaultAzureCredential, managed identity)
 - `azure_core` — Core types, error handling, HTTP pipeline
-- `azure_storage_blobs` — Blob Storage
+- `azure_storage_blob` — Blob Storage
 - `azure_storage` — Storage common types
-- `azure_security_keyvault` — Key Vault secrets, keys, certificates
-- `azure_data_cosmos` — Cosmos DB
+- `azure_security_keyvault_secrets` — Key Vault secrets, keys, certificates
+- `azure_cosmos` — Cosmos DB
 
 ### Limited or Preview Availability:
-- Azure Service Bus (`azure_messaging_servicebus`) — Check crates.io
-- Azure Event Hubs — May require REST API approach
-- Azure OpenAI — Community crate `async-openai` supports Azure; official crate TBD
+- Azure Service Bus — Check crates.io for `azure_messaging_servicebus` or similar
+- Azure Event Hubs — Check crates.io for `azure_messaging_event_hubs` or similar; may require REST API
+- Azure OpenAI — Community crate `async-openai` supports Azure; check crates.io for official `azure_openai`
 - Azure SQL — Use `tiberius` crate with AAD tokens
 - Azure AI Search — May require REST API approach
 - Azure Communication Services — REST API approach
@@ -2640,13 +2782,14 @@ For services without official Rust crates, apply the core patterns from Sections
 - [Azure SDK for Rust — GitHub](https://github.com/Azure/azure-sdk-for-rust)
 - [azure_identity on crates.io](https://crates.io/crates/azure_identity)
 - [azure_core on crates.io](https://crates.io/crates/azure_core)
-- [azure_storage_blobs on crates.io](https://crates.io/crates/azure_storage_blobs)
-- [azure_data_cosmos on crates.io](https://crates.io/crates/azure_data_cosmos)
-- [azure_security_keyvault on crates.io](https://crates.io/crates/azure_security_keyvault)
+- [azure_storage_blob on crates.io](https://crates.io/crates/azure_storage_blob)
+- [azure_cosmos on crates.io](https://crates.io/crates/azure_cosmos)
+- [azure_security_keyvault_secrets on crates.io](https://crates.io/crates/azure_security_keyvault_secrets)
 
 ### Rust Ecosystem
 - [Rust Installation — rustup.rs](https://rustup.rs/)
 - [Rust 2021 Edition Guide](https://doc.rust-lang.org/edition-guide/rust-2021/)
+- [Rust 2024 Edition Guide](https://doc.rust-lang.org/edition-guide/rust-2024/)
 - [tokio — Async Runtime](https://tokio.rs/)
 - [serde — Serialization Framework](https://serde.rs/)
 - [thiserror — Error Derive Macro](https://crates.io/crates/thiserror)
@@ -2655,6 +2798,7 @@ For services without official Rust crates, apply the core patterns from Sections
 - [tiberius — SQL Server/Azure SQL Driver](https://crates.io/crates/tiberius)
 - [dotenvy — .env File Loader](https://crates.io/crates/dotenvy)
 - [cargo-audit — Security Auditing](https://crates.io/crates/cargo-audit)
+- [cargo-deny — License and Vulnerability Auditing](https://crates.io/crates/cargo-deny)
 
 ### Azure Authentication & Identity
 - [DefaultAzureCredential](https://learn.microsoft.com/azure/developer/rust/azure-sdk-overview)
@@ -2677,9 +2821,9 @@ This skill captures **Azure SDK Rust sample patterns** adapted from the comprehe
 
 ### Severity Breakdown
 - **CRITICAL** (9 rules): Hardcoded secrets, phantom deps, CVE scanning, token refresh, AVM versions, parameter validation, .gitignore, fabricated output, panic in samples
-- **HIGH** (19 rules): Client construction, managed identity, pagination, Rust edition, lock file, OpenAI config, Cosmos patterns, SQL patterns, batch operations, RBAC, ownership patterns, async runtime, pre-computed data, .env.sample, dead code, LICENSE, prerequisites, resource naming, CI/CD
-- **MEDIUM** (27 rules): Client options, config loading, clippy, feature flags, crate legitimacy, version pinning, credential config, resource cleanup, embedding validation, SQL safety, Storage, messaging, Key Vault, error types, Azure errors, JSON loading, troubleshooting, setup, placeholders, API versions, governance, azd structure, Dockerfile, error propagation, feature flag patterns, test patterns, output values
-- **LOW** (7 rules): rustfmt config, tracing logging, Rust version docs, API version docs, .editorconfig, region availability, scope notes
+- **HIGH** (24 rules): Client construction, managed identity, pagination, Rust edition, lock file, OpenAI config, Cosmos patterns, SQL patterns, batch operations, RBAC, network security, resource naming, ownership patterns, async runtime, pre-computed data, .env.sample, LICENSE, prerequisites, CI/CD, Send+Sync bounds, crate naming, Key Vault, Azure errors, error propagation
+- **MEDIUM** (32 rules): Client options, config loading, clippy, feature flags, crate legitimacy, credential config, resource cleanup, embedding validation, API version docs, SQL safety, Storage, Storage SAS fallback, messaging, error types, JSON loading, troubleshooting, setup, placeholders, API versions, governance, output values, azd structure, Dockerfile, error propagation patterns, feature flag patterns, test patterns, dead code, cargo-deny, TokenCredential bounds, vector types, DiskANN config, Document Intelligence
+- **LOW** (5 rules): rustfmt config, tracing logging, Rust version docs, Service Bus patterns, Event Hubs patterns
 
 ### Service Coverage
 - **Core SDK**: Authentication, credentials, managed identities, client patterns, token management, pagination, RAII cleanup
@@ -2689,7 +2833,7 @@ This skill captures **Azure SDK Rust sample patterns** adapted from the comprehe
 - **Security**: Key Vault (secrets, keys, certificates)
 - **Vector Search**: Azure SQL, Cosmos DB
 - **Infrastructure**: Bicep/Terraform, AVM modules, azd integration, RBAC, CAF naming
-- **Rust Idioms**: Ownership/borrowing, async runtime, error propagation, tracing, feature flags
+- **Rust Idioms**: Ownership/borrowing, async runtime (tokio flavors, spawn_blocking), error propagation, tracing, feature flags, Send+Sync bounds, TokenCredential trait bounds
 
 ### Key Differentiators from TypeScript Skill
 - **Error handling**: Rust's type system enforces `Result<T, E>` at compile time—no silent failures possible
