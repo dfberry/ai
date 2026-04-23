@@ -21,7 +21,7 @@ Use this skill when reviewing **Go code samples** for Azure SDKs intended for pu
 
 This skill captures patterns and anti-patterns for Azure SDK Go samples, adapted from comprehensive reviews across the Azure SDK ecosystem.
 
-**Total rules: 68** (11 CRITICAL, 22 HIGH, 28 MEDIUM, 7 LOW)
+**Total rules: 75** (11 CRITICAL, 24 HIGH, 32 MEDIUM, 8 LOW)
 
 ---
 
@@ -45,7 +45,7 @@ Use this checklist for rapid initial triage before deep review:
 - [ ] **README.md**: Exists with prerequisites, setup steps, and expected output
 - [ ] **LICENSE**: MIT license file present (required for Azure Samples)
 - [ ] **Security**: `govulncheck ./...` passes with no known vulnerabilities
-- [ ] **Go version**: go.mod specifies Go 1.21+ (`go 1.21` directive)
+- [ ] **Go version**: go.mod specifies Go 1.22+ (`go 1.22` directive)
 - [ ] **Error handling**: Every error return is checked (`if err != nil`)
 - [ ] **Resource cleanup**: Clients properly closed with `defer` statements
 - [ ] **go.sum**: Committed (not .gitignored)
@@ -75,14 +75,14 @@ These issues always block publication. Samples with any of these must be rejecte
 **What this section covers:** Module structure, Go version, dependency management, environment variables, and tooling. These foundational patterns ensure samples build correctly and run reliably across environments.
 
 ### PS-1: Go Version (HIGH)
-**Pattern:** Target Go 1.21+ in go.mod. Use current stable Go features.
+**Pattern:** Target Go 1.22+ in go.mod. Use current stable Go features.
 
 ✅ **DO:**
 ```go
 // go.mod
 module github.com/Azure-Samples/azure-storage-blob-go-quickstart
 
-go 1.21
+go 1.22
 
 require (
     github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.7.0
@@ -98,7 +98,7 @@ module github.com/Azure-Samples/azure-storage-blob-go-quickstart
 go 1.18  // ❌ Too old—missing slog, slices, and other modern features
 ```
 
-**Why:** Go 1.21+ provides `log/slog` for structured logging, improved generics, and better error handling. Older versions lack features expected in modern samples.
+**Why:** Go 1.22+ provides `log/slog` for structured logging, improved generics, better error handling, and fixes the loop variable capture bug. Older versions lack features expected in modern samples.
 
 ---
 
@@ -165,11 +165,12 @@ require (
 import (
     "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
     "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-    "github.com/Azure/azure-sdk-for-go/sdk/keyvault/azsecrets"
+    "github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
     "github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
     "github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
     "github.com/Azure/azure-sdk-for-go/sdk/data/aztables"
     "github.com/Azure/azure-sdk-for-go/sdk/ai/azopenai"
+    "github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 )
 ```
 
@@ -442,7 +443,7 @@ import (
 
     "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
     "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-    "github.com/Azure/azure-sdk-for-go/sdk/keyvault/azsecrets"
+    "github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
     "github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
     "github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 )
@@ -543,10 +544,17 @@ if err != nil {
 
 ❌ **DON'T:**
 ```go
-// ❌ Don't omit client options for samples that do meaningful work
-blobClient, err := azblob.NewClient(url, cred, nil)
-// No retry policy, no timeout configuration
+// ❌ Don't use extremely short timeouts or misconfigure retry policies
+clientOptions := &azblob.ClientOptions{
+    ClientOptions: policy.ClientOptions{
+        Retry: policy.RetryOptions{
+            MaxRetries: 0,  // ❌ No retries—Azure calls are inherently transient
+        },
+    },
+}
 ```
+
+> **Note:** Passing `nil` for `ClientOptions` is idiomatic Go and acceptable for quickstarts. The SDK provides sensible defaults (3 retries, exponential backoff). Only flag missing options in production-oriented samples that should demonstrate explicit configuration.
 
 **Why:** Default retry policies are reasonable but samples should demonstrate configuring them explicitly for production guidance.
 
@@ -747,7 +755,7 @@ for pager.More() {
 // ✅ Cosmos DB—iterate query results
 queryPager := containerClient.NewQueryItemsPager(
     "SELECT * FROM c WHERE c.category = @category",
-    azcosmos.PartitionKey{}.AppendString("electronics"),
+    azcosmos.NewPartitionKeyString("electronics"),
     &azcosmos.QueryOptions{
         QueryParameters: []azcosmos.QueryParameter{
             {Name: "@category", Value: "electronics"},
@@ -873,12 +881,18 @@ const apiVersion = "2024-10-21"
 ---
 
 ### AI-3: Document Intelligence (MEDIUM)
-**Pattern:** Use `github.com/Azure/azure-sdk-for-go/sdk/ai/azdocumentintelligence` with `DefaultAzureCredential`.
+**Pattern:** Use the Azure SDK for Go Document Intelligence package with `DefaultAzureCredential`.
+
+> **⚠️ Package Path:** The Go SDK package for Document Intelligence may be at
+> `github.com/Azure/azure-sdk-for-go/sdk/ai/documentintelligence/azdocumentintelligence`.
+> Verify the exact import path on [pkg.go.dev](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/ai/)
+> before using—the package may be in preview or not yet published.
 
 ✅ **DO:**
 ```go
 import (
-    "github.com/Azure/azure-sdk-for-go/sdk/ai/azdocumentintelligence"
+    // Verify package path on pkg.go.dev — may be in preview
+    "github.com/Azure/azure-sdk-for-go/sdk/ai/documentintelligence/azdocumentintelligence"
     "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
 
@@ -940,6 +954,41 @@ insertEmbedding(embedding)  // May fail silently if dimension wrong
 - `text-embedding-3-small`: 1536
 - `text-embedding-3-large`: 3072
 - `text-embedding-ada-002`: 1536
+
+---
+
+### AI-5: Azure Speech SDK (MEDIUM)
+**Pattern:** The Azure Speech SDK for Go uses the Cognitive Services Speech SDK (CGo bindings) or REST APIs. For Go samples, the REST-based approach is more portable.
+
+> **⚠️ Note:** The Go Speech SDK requires CGo and platform-specific native libraries.
+> For quickstarts, consider using the REST API with `azidentity` for authentication.
+> Check [Azure Speech SDK documentation](https://learn.microsoft.com/azure/ai-services/speech-service/)
+> for current Go support status.
+
+✅ **DO:**
+```go
+import (
+    "github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+    "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+)
+
+// ✅ Get token for Speech Service via REST
+cred, err := azidentity.NewDefaultAzureCredential(nil)
+if err != nil {
+    return fmt.Errorf("creating credential: %w", err)
+}
+
+token, err := cred.GetToken(ctx, policy.TokenRequestOptions{
+    Scopes: []string{"https://cognitiveservices.azure.com/.default"},
+})
+if err != nil {
+    return fmt.Errorf("acquiring speech token: %w", err)
+}
+
+// Use token.Token with Speech REST API
+```
+
+**Why:** Speech-to-text and text-to-speech are important AI scenarios. Documenting the Go authentication pattern helps users integrate with the REST API.
 
 ---
 
@@ -1268,7 +1317,50 @@ func createBlobClient(accountName string) (*azblob.Client, error) {
 
 ---
 
-## 5. Messaging Services (Service Bus, Event Hubs)
+### DB-7: UploadStream for Large Files (HIGH)
+**Pattern:** Use `UploadStream()` for streaming large files to blob storage. `UploadBuffer()` loads the entire file into memory; `UploadStream()` streams in chunks.
+
+✅ **DO:**
+```go
+import (
+    "os"
+
+    "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blockblob"
+)
+
+// ✅ Stream large files without loading entirely into memory
+func uploadLargeFile(ctx context.Context, client *azblob.Client, container, blobName, filePath string) error {
+    file, err := os.Open(filePath)
+    if err != nil {
+        return fmt.Errorf("opening file: %w", err)
+    }
+    defer file.Close()
+
+    _, err = client.UploadStream(ctx, container, blobName, file,
+        &azblob.UploadStreamOptions{
+            BlockSize:   4 * 1024 * 1024, // 4 MiB blocks
+            Concurrency: 4,               // parallel uploads
+        },
+    )
+    if err != nil {
+        return fmt.Errorf("uploading stream: %w", err)
+    }
+    return nil
+}
+```
+
+❌ **DON'T:**
+```go
+// ❌ Don't load large files entirely into memory
+data, _ := os.ReadFile("large-file.dat")  // ❌ May OOM for multi-GB files
+client.UploadBuffer(ctx, "container", "blob", data, nil)
+```
+
+**Why:** `UploadStream` streams data in configurable block sizes with parallel uploads, avoiding out-of-memory errors for large files.
+
+---
+
+## 5. Messaging Services (Service Bus, Event Hubs, Event Grid)
 
 **What this section covers:** Messaging patterns for queues, topics, and event ingestion. Focus on reliable message handling and proper resource cleanup.
 
@@ -1409,6 +1501,32 @@ if err != nil {
 }
 defer consumerClient.Close(ctx)
 ```
+
+---
+
+### MSG-3: Event Grid—azeventgrid Patterns (MEDIUM)
+**Pattern:** Use `github.com/Azure/azure-sdk-for-go/sdk/messaging/eventgrid/azeventgrid` for publishing events to Event Grid topics.
+
+✅ **DO:**
+```go
+import (
+    "github.com/Azure/azure-sdk-for-go/sdk/messaging/eventgrid/azeventgrid"
+    "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+)
+
+cred, err := azidentity.NewDefaultAzureCredential(nil)
+if err != nil {
+    return fmt.Errorf("creating credential: %w", err)
+}
+
+client, err := azeventgrid.NewClient(config.EventGridEndpoint, cred, nil)
+if err != nil {
+    return fmt.Errorf("creating event grid client: %w", err)
+}
+```
+
+> **Note:** Verify exact package path on [pkg.go.dev](https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/eventgrid/)—
+> the Event Grid Go SDK may be in preview.
 
 ---
 
@@ -1593,12 +1711,12 @@ return fmt.Errorf("uploading blob: %v", err)
 
 // ❌ Don't discard errors
 client.UploadBuffer(ctx, "container", "blob.txt", data, nil)  // ❌ Error ignored
-
-// ❌ Don't use bare return with no context
-if err != nil {
-    return err  // ❌ No context—hard to debug
-}
 ```
+
+> **Note:** A simple `return err` after a single operation is idiomatic Go and acceptable when the
+> function name already provides context (e.g., `func uploadBlob(...) error`). Only flag bare
+> `return err` when wrapping would add meaningful debugging context—such as in multi-step functions
+> or when the caller can't easily determine which operation failed.
 
 **Why:** `%w` wrapping preserves the full error chain so callers can use `errors.Is` and `errors.As` for programmatic error inspection. `%v` breaks the chain.
 
@@ -2037,7 +2155,7 @@ If you see "failed to create credential":
 ## Prerequisites
 
 - **Azure Subscription**: [Create a free account](https://azure.com/free)
-- **Go**: Version 1.21 or later ([Download](https://go.dev/dl/))
+- **Go**: Version 1.22 or later ([Download](https://go.dev/dl/))
 - **Azure CLI**: [Install instructions](https://learn.microsoft.com/cli/azure/install-azure-cli)
 - **Azure Developer CLI (azd)**: [Install](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) (optional)
 
@@ -2095,12 +2213,12 @@ Your Azure identity needs these role assignments:
 ```markdown
 ## Prerequisites
 
-- **Go**: Version 1.21 or later required for `log/slog` structured logging support
+- **Go**: Version 1.22 or later required for `log/slog` structured logging and loop variable fix
 ```
 
 ```go
 // go.mod
-go 1.21
+go 1.22
 ```
 
 ---
@@ -2439,7 +2557,6 @@ func processItemsConcurrently(ctx context.Context, client *azblob.Client, items 
     g.SetLimit(10)  // Limit concurrency
 
     for _, item := range items {
-        item := item  // Capture loop variable (Go < 1.22)
         g.Go(func() error {
             data, err := json.Marshal(item)
             if err != nil {
@@ -2473,7 +2590,7 @@ for _, item := range items {
 ---
 
 ### GO-4: Structured Logging with slog (LOW)
-**Pattern:** Use `log/slog` (Go 1.21+) for structured logging in samples.
+**Pattern:** Use `log/slog` (Go 1.22+) for structured logging in production-oriented samples. For quickstarts, `fmt.Println` is acceptable.
 
 ✅ **DO:**
 ```go
@@ -2505,12 +2622,252 @@ func uploadBlob(ctx context.Context, container, blob string) error {
 
 ❌ **DON'T:**
 ```go
-// ❌ Don't use fmt.Println for logging in production-quality samples
+// ❌ Avoid fmt.Println for logging in production-quality samples (OK for quickstarts)
 fmt.Println("Uploading blob...")
 fmt.Printf("Error: %v\n", err)
 ```
 
-**Why:** `log/slog` provides structured, leveled logging that's production-ready. `fmt.Println` loses structured context.
+**Why:** `log/slog` provides structured, leveled logging that's production-ready. `fmt.Println` is acceptable for quickstarts and tutorials but loses structured context for production guidance.
+
+---
+
+### GO-5: to.Ptr() Helper for Pointer Values (MEDIUM)
+**Pattern:** Use `github.com/Azure/azure-sdk-for-go/sdk/azcore/to` for creating pointer values. Many Azure SDK structs use pointer fields—`to.Ptr()` is the idiomatic helper.
+
+✅ **DO:**
+```go
+import "github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+
+// ✅ Use to.Ptr() for pointer fields in Azure SDK structs
+resp, err := client.GetChatCompletions(ctx, azopenai.ChatCompletionsOptions{
+    DeploymentName: to.Ptr("gpt-4o"),
+    MaxTokens:      to.Ptr[int32](1000),
+    Temperature:    to.Ptr[float32](0.7),
+}, nil)
+
+// ✅ Key Vault key creation
+createResp, err := keyClient.CreateKey(ctx, "my-key", azkeys.CreateKeyParameters{
+    Kty: to.Ptr(azkeys.KeyTypeRSA),
+}, nil)
+```
+
+❌ **DON'T:**
+```go
+// ❌ Don't create local variables just for pointers
+name := "gpt-4o"
+resp, err := client.GetChatCompletions(ctx, azopenai.ChatCompletionsOptions{
+    DeploymentName: &name,  // ❌ Verbose—use to.Ptr()
+}, nil)
+```
+
+**Why:** `to.Ptr()` is the standard Azure SDK helper for pointer creation, making code concise and consistent.
+
+---
+
+### GO-6: LRO/Poller Patterns—runtime.Poller (HIGH)
+**Pattern:** Long-running operations (LROs) in the Azure SDK return `*runtime.Poller[T]`. Use `BeginXxx()` methods and `PollUntilDone()` to wait for completion.
+
+✅ **DO:**
+```go
+import "github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+
+// ✅ Start a long-running operation
+poller, err := client.BeginCreateOrUpdate(ctx, resourceGroupName, resourceName, parameters, nil)
+if err != nil {
+    return fmt.Errorf("starting create operation: %w", err)
+}
+
+// ✅ Wait for completion
+result, err := poller.PollUntilDone(ctx, &runtime.PollUntilDoneOptions{
+    Frequency: 10 * time.Second, // Poll interval (default: 30s for ARM)
+})
+if err != nil {
+    return fmt.Errorf("waiting for create operation: %w", err)
+}
+fmt.Printf("Resource created: %s\n", *result.ID)
+
+// ✅ Document Intelligence example
+poller, err := diClient.BeginAnalyzeDocument(ctx, "prebuilt-invoice", content, nil)
+if err != nil {
+    return fmt.Errorf("starting analysis: %w", err)
+}
+analyzeResult, err := poller.PollUntilDone(ctx, nil)
+if err != nil {
+    return fmt.Errorf("analyzing document: %w", err)
+}
+```
+
+❌ **DON'T:**
+```go
+// ❌ Don't ignore the poller—operation may not be complete
+poller, _ := client.BeginCreateOrUpdate(ctx, rg, name, params, nil)
+// ❌ Resource may not exist yet!
+```
+
+**Why:** ARM resource provisioning, Cosmos DB operations, and AI service calls often use LROs. The `BeginXxx` + `PollUntilDone` pattern is critical for correctness.
+
+---
+
+### GO-7: ARM Client Patterns (HIGH)
+**Pattern:** Azure Resource Manager (ARM) clients use a `NewClient(subscriptionID, cred, nil)` constructor pattern. Import `armXxx` packages for management-plane operations.
+
+✅ **DO:**
+```go
+import (
+    "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+    "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+    "github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
+)
+
+cred, err := azidentity.NewDefaultAzureCredential(nil)
+if err != nil {
+    return fmt.Errorf("creating credential: %w", err)
+}
+
+// ✅ ARM clients take subscriptionID as first parameter
+rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, cred, nil)
+if err != nil {
+    return fmt.Errorf("creating resource groups client: %w", err)
+}
+
+// ✅ List resource groups
+pager := rgClient.NewListPager(nil)
+for pager.More() {
+    page, err := pager.NextPage(ctx)
+    if err != nil {
+        return fmt.Errorf("listing resource groups: %w", err)
+    }
+    for _, rg := range page.Value {
+        fmt.Printf("Resource Group: %s (%s)\n", *rg.Name, *rg.Location)
+    }
+}
+
+// ✅ VM client
+vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, cred, nil)
+if err != nil {
+    return fmt.Errorf("creating VM client: %w", err)
+}
+```
+
+**Why:** ARM clients are the management plane for Azure resources. The `NewClient(subscriptionID, cred, opts)` pattern is consistent across all `arm*` packages.
+
+---
+
+### GO-8: Sovereign Cloud Configuration (HIGH)
+**Pattern:** For Azure Government, Azure China, or other sovereign clouds, configure `cloud.Configuration` in `ClientOptions`. The default is Azure Public Cloud.
+
+✅ **DO:**
+```go
+import (
+    "github.com/Azure/azure-sdk-for-go/sdk/azcore"
+    "github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
+    "github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+    "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+)
+
+// ✅ Azure Government
+cred, err := azidentity.NewDefaultAzureCredential(&azidentity.DefaultAzureCredentialOptions{
+    ClientOptions: azcore.ClientOptions{
+        Cloud: cloud.AzureGovernment,
+    },
+})
+if err != nil {
+    return fmt.Errorf("creating credential: %w", err)
+}
+
+blobClient, err := azblob.NewClient(serviceURL, cred, &azblob.ClientOptions{
+    ClientOptions: azcore.ClientOptions{
+        Cloud: cloud.AzureGovernment,
+    },
+})
+if err != nil {
+    return fmt.Errorf("creating blob client: %w", err)
+}
+
+// ✅ Azure China
+// Cloud: cloud.AzureChina
+```
+
+❌ **DON'T:**
+```go
+// ❌ Don't hardcode government endpoints without setting cloud config
+client, err := azblob.NewClient("https://myaccount.blob.core.usgovcloudapi.net/", cred, nil)
+// ❌ Missing cloud configuration—token audience will be wrong
+```
+
+**Why:** Sovereign clouds have different authentication endpoints and token audiences. Both the credential AND the client must use the same `cloud.Configuration`.
+
+---
+
+### GO-9: AuthenticationFailedError Handling (MEDIUM)
+**Pattern:** Use `errors.As` with `*azcore.ResponseError` to detect authentication failures and provide actionable guidance.
+
+✅ **DO:**
+```go
+import (
+    "errors"
+    "net/http"
+
+    "github.com/Azure/azure-sdk-for-go/sdk/azcore"
+)
+
+_, err := client.UploadBuffer(ctx, "container", "blob.txt", data, nil)
+if err != nil {
+    var respErr *azcore.ResponseError
+    if errors.As(err, &respErr) {
+        if respErr.StatusCode == http.StatusUnauthorized || respErr.StatusCode == http.StatusForbidden {
+            fmt.Println("Authentication/authorization failed. Check:")
+            fmt.Println("  1. Run 'az login' to refresh credentials")
+            fmt.Println("  2. Verify role assignments (e.g., 'Storage Blob Data Contributor')")
+            fmt.Println("  3. Check managed identity configuration if deployed to Azure")
+        }
+    }
+    return fmt.Errorf("uploading blob: %w", err)
+}
+```
+
+**Why:** Authentication errors are the most common issue for new users. Providing actionable guidance saves debugging time.
+
+---
+
+### GO-10: ETag / Optimistic Concurrency (MEDIUM)
+**Pattern:** Use ETags for optimistic concurrency control with Cosmos DB and Storage. This prevents lost updates in concurrent scenarios.
+
+✅ **DO:**
+```go
+import "github.com/Azure/azure-sdk-for-go/sdk/azcore"
+
+// ✅ Cosmos DB—use ETag for conditional updates
+readResp, err := containerClient.ReadItem(ctx, pk, itemID, nil)
+if err != nil {
+    return fmt.Errorf("reading item: %w", err)
+}
+
+// Update only if the item hasn't changed
+_, err = containerClient.ReplaceItem(ctx, pk, itemID, updatedData, &azcosmos.ItemOptions{
+    IfMatchEtag: &readResp.ETag,
+})
+if err != nil {
+    var respErr *azcore.ResponseError
+    if errors.As(err, &respErr) && respErr.StatusCode == http.StatusPreconditionFailed {
+        return fmt.Errorf("item was modified by another process—retry: %w", err)
+    }
+    return fmt.Errorf("replacing item: %w", err)
+}
+
+// ✅ Blob Storage—conditional upload
+_, err = client.UploadBuffer(ctx, "container", "blob.txt", data,
+    &azblob.UploadBufferOptions{
+        AccessConditions: &azblob.AccessConditions{
+            ModifiedAccessConditions: &azblob.ModifiedAccessConditions{
+                IfMatch: &currentETag,
+            },
+        },
+    },
+)
+```
+
+**Why:** Without ETags, concurrent updates can silently overwrite each other (last-write-wins). Optimistic concurrency prevents data loss.
 
 ---
 
@@ -2602,7 +2959,7 @@ func TestBlobUpload(t *testing.T) {
 Use this comprehensive checklist before submitting an Azure SDK Go sample for review:
 
 ### 🔧 Project Setup
-- [ ] go.mod specifies Go 1.21+ (`go 1.21` directive)
+- [ ] go.mod specifies Go 1.22+ (`go 1.22` directive)
 - [ ] Module path matches repository URL
 - [ ] Every dependency is imported somewhere (no phantom deps)
 - [ ] Using Track 2 Azure SDK packages (`sdk/*`, not `services/*`)

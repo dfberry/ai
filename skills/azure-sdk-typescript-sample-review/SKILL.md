@@ -20,7 +20,7 @@ Use this skill when reviewing **TypeScript code samples** for Azure SDKs intende
 
 This skill captures patterns and anti-patterns discovered during comprehensive reviews of Azure SDK TypeScript samples, particularly the Azure SQL vector search sample (29 findings) plus generalized patterns across the Azure SDK ecosystem.
 
-**Total rules: 63** (10 CRITICAL, 21 HIGH, 26 MEDIUM, 6 LOW)
+**Total rules: 68** (10 CRITICAL, 22 HIGH, 29 MEDIUM, 7 LOW)
 
 ---
 
@@ -46,7 +46,7 @@ Use this checklist for rapid initial triage before deep review:
 - [ ] **Security**: `npm audit` passes with no critical/high vulnerabilities
 - [ ] **TypeScript**: `strict: true` in tsconfig.json
 - [ ] **Error handling**: `catch` blocks present with type-safe error narrowing
-- [ ] **Resource cleanup**: Clients properly closed/disposed (finally blocks or Symbol.asyncDispose)
+- [ ] **Resource cleanup**: Clients properly closed/disposed (try/finally blocks)
 - [ ] **Lock file**: package-lock.json committed (not .gitignored)
 - [ ] **No mixed package managers**: Only npm OR yarn OR pnpm (not multiple)
 - [ ] **Imports work**: No broken imports, all dependencies installed
@@ -75,7 +75,7 @@ These issues always block publication. Samples with any of these must be rejecte
 **What this section covers:** Package structure, TypeScript configuration, dependency management, environment variables, and Node.js runtime settings. These foundational patterns ensure samples build correctly and run reliably across environments.
 
 ### PS-1: ESM Configuration (HIGH)
-**Pattern:** For modern Node.js projects (20+), use native ESM with proper TypeScript configuration.
+**Pattern:** For modern Node.js projects (20.12+), use native ESM with proper TypeScript configuration.
 
 ✅ **DO:**
 ```json
@@ -83,10 +83,11 @@ These issues always block publication. Samples with any of these must be rejecte
 {
   "type": "module",
   "scripts": {
-    "start": "node --env-file=.env --import tsx/esm src/index.ts"
+    "start": "npx tsx src/index.ts",
+    "start:env": "node --env-file=.env --import tsx src/index.ts"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.12.0"
   }
 }
 
@@ -115,7 +116,7 @@ import { BlobServiceClient } from '@azure/storage-blob';
 }
 ```
 
-**Why:** ESM is the future of Node.js. `moduleResolution: "node"` doesn't understand `"type": "module"`.
+**Why:** ESM is the future of Node.js. `moduleResolution: "node"` doesn't understand `"type": "module"`. Note: `--loader tsx/esm` is deprecated — use `npx tsx` directly or `--import tsx` to register the loader.
 
 ---
 
@@ -223,7 +224,7 @@ import { OpenAIClient } from '@azure/openai';    // Use openai SDK's AzureOpenAI
 ---
 
 ### PS-5: Environment Variables (MEDIUM)
-**Pattern:** Use Node.js 20+ native `--env-file` instead of `dotenv`. Validate all required variables with descriptive errors.
+**Pattern:** Use Node.js 20.12+ native `--env-file` instead of `dotenv`. Validate all required variables with descriptive errors. Note: `--env-file` requires Node.js 20.12 or later (not available in earlier 20.x releases).
 
 ✅ **DO:**
 ```typescript
@@ -253,14 +254,14 @@ export function getConfig() {
 // package.json
 {
   "scripts": {
-    "start": "node --env-file=.env --import tsx/esm src/index.ts"
+    "start": "node --env-file=.env --import tsx src/index.ts"
   }
 }
 ```
 
 ❌ **DON'T:**
 ```typescript
-// ❌ Don't use dotenv in Node.js 20+
+// ❌ Don't use dotenv in Node.js 20.12+
 import 'dotenv/config';
 
 // ❌ Don't silently fail on missing vars
@@ -516,9 +517,9 @@ const secretClient = new SecretClient(url, new DefaultAzureCredential());
 ---
 
 ### AZ-2: Client Options and Retry Policies (MEDIUM)
-**Pattern:** Configure retry policies, timeouts, and logging for production-ready samples.
+**Pattern:** Production samples SHOULD configure retry policies, timeouts, and logging. Quickstarts MAY rely on Azure SDK built-in defaults (3 retries with exponential backoff).
 
-✅ **DO:**
+✅ **DO (production samples):**
 ```typescript
 import { BlobServiceClient } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
@@ -543,12 +544,25 @@ const blobServiceClient = new BlobServiceClient(
 );
 ```
 
+✅ **OK (quickstarts — SDK defaults are fine):**
+```typescript
+// Azure SDK clients have built-in retry (3 retries, exponential backoff).
+// Quickstarts may omit explicit retry configuration for simplicity.
+const blobServiceClient = new BlobServiceClient(
+  `https://${accountName}.blob.core.windows.net`,
+  credential
+);
+```
+
 ❌ **DON'T:**
 ```typescript
-// ❌ Don't omit client options for samples that do meaningful work
-const blobServiceClient = new BlobServiceClient(url, credential);
-// No retry policy, no timeout configuration
+// ❌ Don't disable retries for production samples
+const blobServiceClient = new BlobServiceClient(url, credential, {
+  retryOptions: { maxRetries: 0 },  // ❌ Disables built-in retry
+});
 ```
+
+**Note:** Azure SDK clients include built-in retry with exponential backoff by default. Quickstarts don't need explicit retry configuration — only flag this for production-grade samples or when retry is explicitly disabled.
 
 ---
 
@@ -661,22 +675,23 @@ const credential = new DefaultAzureCredential({
 // > 1. Environment variables (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET)
 // > 2. Workload identity (Azure Kubernetes Service)
 // > 3. Managed identity (App Service, Functions, Container Apps)
-// > 4. Azure CLI (`az login`)
-// > 5. Azure PowerShell
-// > 6. Interactive browser (local development only)
+// > 4. Azure Developer CLI (`azd auth login`)
+// > 5. Azure CLI (`az login`)
+// > 6. Azure PowerShell
+// > 7. Interactive browser (local development only)
 ```
 
 ---
 
 ### AZ-6: Resource Cleanup Patterns (MEDIUM)
-**Pattern:** Samples must properly close/dispose clients. Use `finally` blocks or `Symbol.asyncDispose`.
+**Pattern:** Samples must properly close/dispose clients that hold connections (e.g., Service Bus, Event Hubs). Use `try/finally` blocks. Note: Azure SDK JS/TS clients do NOT support `Symbol.asyncDispose` / `await using` — always use manual cleanup. Some clients (e.g., `BlobServiceClient`, `SecretClient`) are stateless HTTP clients and don't require explicit cleanup.
 
 ✅ **DO:**
 ```typescript
 import { ServiceBusClient } from '@azure/service-bus';
 import { DefaultAzureCredential } from '@azure/identity';
 
-// ✅ Pattern 1: finally block
+// ✅ Use try/finally for clients that hold connections
 const credential = new DefaultAzureCredential();
 const client = new ServiceBusClient(namespace, credential);
 
@@ -688,14 +703,9 @@ try {
   await client.close();  // ✅ Always cleanup
 }
 
-// ✅ Pattern 2: Symbol.asyncDispose (Node.js 20+)
-{
-  await using client = new ServiceBusClient(namespace, credential);
-  const sender = client.createSender('myqueue');
-  await sender.sendMessages({ body: 'Hello' });
-  await sender.close();
-  // ✅ client.close() called automatically at block exit
-}
+// ✅ Stateless HTTP clients (Storage, Key Vault) don't need explicit cleanup
+const blobServiceClient = new BlobServiceClient(url, credential);
+// No .close() needed — stateless HTTP client
 ```
 
 ❌ **DON'T:**
@@ -709,7 +719,73 @@ await sender.sendMessages({ body: 'Hello' });
 
 ---
 
-### AZ-7: Pagination Patterns (HIGH)
+### AZ-8: AbortController and Cancellation (MEDIUM)
+**Pattern:** Long-running SDK operations should support cancellation via `AbortSignal`. Use `AbortController` to implement timeouts and user-initiated cancellation.
+
+✅ **DO:**
+```typescript
+import { BlobServiceClient } from '@azure/storage-blob';
+
+// ✅ Timeout-based cancellation
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), 30_000);  // 30s timeout
+
+try {
+  const containerClient = blobServiceClient.getContainerClient('mycontainer');
+  const blockBlobClient = containerClient.getBlockBlobClient('largefile.zip');
+  
+  await blockBlobClient.upload(data, data.length, {
+    abortSignal: controller.signal,
+  });
+} finally {
+  clearTimeout(timeout);
+}
+
+// ✅ User-initiated cancellation (e.g., in a CLI tool)
+const controller = new AbortController();
+process.on('SIGINT', () => {
+  console.log('Cancelling operation...');
+  controller.abort();
+});
+
+await longRunningOperation({ abortSignal: controller.signal });
+```
+
+**Note:** Most Azure SDK operations accept `{ abortSignal }` in their options parameter. Pass `AbortController.signal` to enable cancellation.
+
+---
+
+### AZ-9: Diagnostic Logging with @azure/logger (MEDIUM)
+**Pattern:** Use `@azure/logger` for SDK diagnostic output. Enable during development and troubleshooting.
+
+✅ **DO:**
+```typescript
+import { setLogLevel } from '@azure/logger';
+
+// ✅ Enable SDK logging for debugging
+setLogLevel('info');     // Options: 'verbose', 'info', 'warning', 'error'
+
+// ✅ Selectively enable per-client logging
+import { setLogLevel, AzureLogger } from '@azure/logger';
+AzureLogger.log = (...args) => {
+  console.log('[Azure SDK]', ...args);
+};
+setLogLevel('warning');
+
+// ✅ In production samples, show how to enable but leave commented out
+// import { setLogLevel } from '@azure/logger';
+// setLogLevel('info');  // Uncomment for SDK diagnostic logging
+```
+
+❌ **DON'T:**
+```typescript
+// ❌ Don't use console.log to manually trace SDK calls
+console.log('About to call blob upload...');
+await blockBlobClient.upload(data, data.length);
+console.log('Upload done');
+```
+
+**Note:** `@azure/logger` integrates with all `@azure/*` SDK packages. Add `"@azure/logger"` to devDependencies when including diagnostic patterns.
 **Pattern:** Use `for await...of` loops for paginated Azure SDK responses. Samples that only process the first page silently lose data.
 
 ✅ **DO:**
@@ -828,6 +904,66 @@ const client = new AzureOpenAI({
 
 ---
 
+### AI-1b: Streaming Chat Completions (HIGH)
+**Pattern:** For streaming responses, use `client.chat.completions.create()` with `stream: true` and iterate with `for await...of`. This is the standard pattern for real-time AI chat applications.
+
+✅ **DO:**
+```typescript
+import { AzureOpenAI } from 'openai';
+
+// ✅ Streaming chat completions
+const stream = await client.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Explain quantum computing' }],
+  stream: true,
+});
+
+// ✅ Async iteration pattern
+for await (const chunk of stream) {
+  const content = chunk.choices[0]?.delta?.content;
+  if (content) {
+    process.stdout.write(content);  // Stream to terminal
+  }
+}
+console.log();  // Newline after streaming completes
+
+// ✅ With abort support for cancellation
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), 30_000);
+
+try {
+  const stream = await client.chat.completions.create(
+    {
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'Hello!' }],
+      stream: true,
+    },
+    { signal: controller.signal }
+  );
+
+  for await (const chunk of stream) {
+    const content = chunk.choices[0]?.delta?.content;
+    if (content) process.stdout.write(content);
+  }
+} finally {
+  clearTimeout(timeout);
+}
+```
+
+❌ **DON'T:**
+```typescript
+// ❌ Don't collect entire stream into memory then process
+const chunks: string[] = [];
+for await (const chunk of stream) {
+  chunks.push(chunk.choices[0]?.delta?.content ?? '');
+}
+const fullResponse = chunks.join('');  // ❌ Defeats purpose of streaming
+```
+
+**Why:** Streaming is critical for AI chat applications — it provides immediate user feedback. The `for await...of` pattern is the idiomatic way to consume Azure OpenAI streams in TypeScript.
+
+---
+
 ### AI-2: API Version Documentation (LOW)
 **Pattern:** Hardcoded API versions should include a comment linking to version docs.
 
@@ -842,7 +978,7 @@ const client = new AzureOpenAI({
 ---
 
 ### AI-3: Document Intelligence and Speech SDK (MEDIUM)
-**Pattern:** Use `@azure/ai-document-intelligence` and `@azure/ai-speech` with `DefaultAzureCredential` where supported.
+**Pattern:** Use `@azure/ai-document-intelligence` with `DefaultAzureCredential`. For Speech, use `microsoft-cognitiveservices-speech-sdk` (there is no `@azure/ai-speech` package).
 
 ✅ **DO:**
 ```typescript
@@ -931,9 +1067,10 @@ import { DefaultAzureCredential } from '@azure/identity';
 
 const credential = new DefaultAzureCredential();
 
-// ✅ Cosmos DB uses specific token scope (not generic Azure scope)
-const scope = 'https://{account-name}.documents.azure.com/.default';
-// For actual usage, replace {account-name} with your Cosmos account name
+// ✅ Cosmos DB uses specific token scope
+// The SDK handles token acquisition internally when using aadCredentials.
+// If you need a token directly (rare), the scope is:
+// 'https://{account-name}.documents.azure.com/.default'
 
 const client = new CosmosClient({
   endpoint: config.COSMOS_ENDPOINT,
@@ -961,12 +1098,13 @@ await container.items.create({
   name: 'Laptop',
 });
 
-// ✅ Batch operations (same partition key, max 100 ops)
-const batch = container.items.batch('electronics');
-batch.create({ id: '1', category: 'electronics', name: 'Laptop' });
-batch.create({ id: '2', category: 'electronics', name: 'Mouse' });
-batch.upsert({ id: '3', category: 'electronics', name: 'Keyboard' });
-const { resources } = await batch.execute();
+// ✅ Bulk operations (multiple partition keys supported, max 100 ops per batch)
+const operations = [
+  { operationType: 'Create' as const, resourceBody: { id: '1', category: 'electronics', name: 'Laptop' } },
+  { operationType: 'Create' as const, resourceBody: { id: '2', category: 'electronics', name: 'Mouse' } },
+  { operationType: 'Upsert' as const, resourceBody: { id: '3', category: 'electronics', name: 'Keyboard' } },
+];
+const bulkResult = await container.items.bulk(operations);
 ```
 
 ❌ **DON'T:**
@@ -1117,8 +1255,8 @@ const query = `SELECT id, name FROM ${tableName} WHERE id = @id`;
 
 ✅ **DO (SQL - Batch Insert):**
 ```typescript
-// ✅ Batch size of 10 rows (SQL Server max ~2100 params, 10 rows * 3 params = 30)
-const BATCH_SIZE = 10;
+// ✅ Batch size of 100 rows (SQL Server max ~2100 params, 100 rows * 3 params = 300)
+const BATCH_SIZE = 100;
 const items = [...]; // Array of items
 
 for (let i = 0; i < items.length; i += BATCH_SIZE) {
@@ -1140,22 +1278,29 @@ for (let i = 0; i < items.length; i += BATCH_SIZE) {
   await executeQueryAsync(connection, sql, params);
 }
 
-// Why batch size 10: SQL Server has ~2100 parameter limit. 
-// 10 rows * 3 params/row = 30 params, well under limit with safety margin.
+// Why batch size 100: SQL Server has ~2100 parameter limit. 
+// 100 rows * 3 params/row = 300 params, well under limit.
+// Adjust batch size based on your column count: max_rows ≈ floor(2100 / params_per_row).
 ```
 
-✅ **DO (Cosmos DB - Batch):**
+✅ **DO (Cosmos DB - Bulk):**
 ```typescript
-// ✅ Cosmos batch (max 100 operations, same partition key)
-const batch = container.items.batch('partition-key-value');
+// ✅ Cosmos bulk operations (use container.items.bulk(), NOT .batch())
+const BULK_BATCH_SIZE = 100;  // Cosmos DB supports up to 100 operations per bulk call
+const items = [...]; // Array of items to insert
 
-batch.create({ id: '1', category: 'electronics', name: 'Laptop' });
-batch.create({ id: '2', category: 'electronics', name: 'Mouse' });
-batch.upsert({ id: '3', category: 'electronics', name: 'Keyboard' });
+for (let i = 0; i < items.length; i += BULK_BATCH_SIZE) {
+  const batch = items.slice(i, i + BULK_BATCH_SIZE);
+  const operations = batch.map(item => ({
+    operationType: 'Create' as const,
+    resourceBody: item,
+  }));
+  const result = await container.items.bulk(operations);
+  console.log(`Bulk inserted ${result.length} items`);
+}
 
-const { resources } = await batch.execute();
-
-// Why 100 max: Cosmos DB limits batches to 100 operations per partition key.
+// Why 100 max: Cosmos DB bulk() processes up to 100 operations per call.
+// Note: container.items.batch() does NOT exist — always use .bulk().
 ```
 
 ✅ **DO (Storage Blob - Parallel):**
@@ -1183,7 +1328,7 @@ for (const item of items) {
 }
 ```
 
-**Production Issue:** Vector search sample inserted 50 hotels one at a time. Changed to batch size 10 (5 round trips instead of 50).
+**Production Issue:** Vector search sample inserted 50 hotels one at a time. Changed to batch inserts (fewer round trips).
 
 ---
 
@@ -1494,13 +1639,24 @@ const { resources } = await container.items
 
 ✅ **DO (Azure AI Search):**
 ```typescript
-import { SearchClient, AzureKeyCredential } from '@azure/search-documents';
+import { SearchClient } from '@azure/search-documents';
+import { DefaultAzureCredential } from '@azure/identity';
 
+// ✅ Prefer DefaultAzureCredential (identity-based auth)
+const credential = new DefaultAzureCredential();
 const searchClient = new SearchClient(
   config.SEARCH_ENDPOINT,
   'hotels-index',
-  new AzureKeyCredential(config.SEARCH_API_KEY)
+  credential
 );
+
+// ✅ Fallback: API key auth (for environments without AAD support)
+// import { AzureKeyCredential } from '@azure/search-documents';
+// const searchClient = new SearchClient(
+//   config.SEARCH_ENDPOINT,
+//   'hotels-index',
+//   new AzureKeyCredential(config.SEARCH_API_KEY)
+// );
 
 const searchResults = await searchClient.search('luxury hotel', {
   vectorSearchOptions: {
@@ -2086,7 +2242,7 @@ npm start
 
 ## Prerequisites
 
-- **Node.js**: Version 20 or later required for `--env-file` support
+- **Node.js**: Version 20.12 or later required for `--env-file` support
 ```
 
 ---
@@ -2538,6 +2694,42 @@ jobs:
 
 ---
 
+### CI-2: Dependency Audit in CI (MEDIUM)
+**Pattern:** Run `npm audit` in CI to catch known vulnerabilities before publication. Fail the build on critical/high CVEs.
+
+✅ **DO:**
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm audit --audit-level=high
+```
+
+```json
+// package.json
+{
+  "scripts": {
+    "audit": "npm audit --audit-level=high",
+    "pretest": "npm run audit"
+  }
+}
+```
+
+**Why:** Automated CVE scanning prevents publishing samples with known security vulnerabilities. Run alongside type checking (CI-1) for comprehensive CI coverage.
+
+---
+
 ## Pre-Review Checklist (Comprehensive)
 
 Use this comprehensive checklist before submitting an Azure SDK TypeScript sample for review:
@@ -2574,7 +2766,7 @@ Use this comprehensive checklist before submitting an Azure SDK TypeScript sampl
 - [ ] Managed identity pattern documented in README (system vs user-assigned)
 - [ ] Service-specific client patterns followed (Storage, Cosmos, Service Bus, etc.)
 - [ ] Pagination handled with `for await...of` or `fetchAll()`
-- [ ] Resource cleanup in finally blocks or Symbol.asyncDispose
+- [ ] Resource cleanup in try/finally blocks for clients that hold connections
 
 ### 🗄️ Data Services (if applicable)
 - [ ] SQL: Tedious uses native `beginTransaction`/`commitTransaction` (NOT raw SQL)
@@ -2656,6 +2848,27 @@ This skill focuses on the most commonly used Azure services in TypeScript sample
 - Azure Static Web Apps (authoring)
 - Azure API Management
 
+### Azure Functions (v4 Programming Model)
+
+For Azure Functions Node.js samples, use the **v4 programming model** (`@azure/functions` v4):
+
+```typescript
+import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
+
+// ✅ v4 model: function registration pattern
+app.http('httpTrigger', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  handler: async (request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> => {
+    context.log('HTTP trigger processed a request.');
+    const name = request.query.get('name') || (await request.text()) || 'World';
+    return { body: `Hello, ${name}!` };
+  },
+});
+```
+
+The v4 model replaces the legacy v3 `function.json` + `index.ts` pattern with a single-file registration approach. See [Azure Functions Node.js v4 docs](https://learn.microsoft.com/azure/azure-functions/functions-reference-node?tabs=typescript%2Cwindows%2Cazure-cli&pivots=nodejs-model-v4).
+
 For samples using these services, apply the core patterns from Sections 1-2 (Project Setup, Azure SDK Client Patterns) and reference service-specific documentation.
 
 ---
@@ -2699,14 +2912,14 @@ This skill captures **Azure SDK TypeScript sample patterns** distilled from comp
 
 ### Severity Breakdown
 - **CRITICAL** (10 rules): Credentials, phantom deps, CVE scanning, token refresh, AVM versions, parameter validation, .gitignore, fabricated output, broken auth, missing error handling
-- **HIGH** (21 rules): Client construction, token management, managed identity, pagination, OpenAI config, database transactions, DiskANN guards, batch operations, RBAC, lock files, role assignments, pre-computed data, .env.sample, prerequisites, dead code, LICENSE file, resource naming
-- **MEDIUM** (26 rules): Client options, retry policies, identifier quoting, embeddings, error handling, JSON loading, troubleshooting, azd structure, type checking, strict flags, version pinning, SAS fallback, dimensions, placeholder docs, resource cleanup, API versions, governance files
-- **LOW** (6 rules): API version docs, .editorconfig, CONTRIBUTING.md, scope notes, Node.js version, region availability
+- **HIGH** (22 rules): Client construction, token management, managed identity, pagination, OpenAI config, streaming completions, database transactions, DiskANN guards, batch operations, RBAC, lock files, role assignments, pre-computed data, .env.sample, prerequisites, dead code, LICENSE file, resource naming
+- **MEDIUM** (29 rules): Client options, retry policies, identifier quoting, embeddings, error handling, JSON loading, troubleshooting, azd structure, type checking, dependency audit CI, strict flags, version pinning, SAS fallback, dimensions, placeholder docs, resource cleanup, API versions, governance files, abort/cancellation, diagnostic logging
+- **LOW** (7 rules): API version docs, .editorconfig, CONTRIBUTING.md, scope notes, Node.js version, region availability, Azure Functions v4
 
 ### Service Coverage
 - **Core SDK**: Authentication, credentials, managed identities, client patterns, token management, pagination, resource cleanup
 - **Data**: Cosmos DB, Azure SQL (Tedious), Storage (Blob/Table/File), batch operations
-- **AI**: Azure OpenAI (embeddings, chat, images), Document Intelligence, Speech, vector dimensions
+- **AI**: Azure OpenAI (embeddings, chat, streaming, images), Document Intelligence, Speech, vector dimensions
 - **Messaging**: Service Bus, Event Hubs, Event Grid, checkpoint management
 - **Security**: Key Vault (secrets, keys, certificates)
 - **Vector Search**: Azure SQL DiskANN, Cosmos DB, AI Search

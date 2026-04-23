@@ -21,7 +21,7 @@ Use this skill when reviewing **Java code samples** for Azure SDKs intended for 
 
 This skill captures patterns and anti-patterns discovered during comprehensive reviews of Azure SDK Java samples, plus generalized patterns across the Azure SDK ecosystem.
 
-**Total rules: 68** (11 CRITICAL, 22 HIGH, 27 MEDIUM, 8 LOW)
+**Total rules: 71** (8 CRITICAL, 26 HIGH, 33 MEDIUM, 4 LOW)
 
 ---
 
@@ -237,14 +237,21 @@ public record Config(
     String keyVaultUrl,
     String cosmosEndpoint
 ) {
-    public static Config fromEnvironment() {
-        Map<String, String> required = Map.of(
-            "AZURE_STORAGE_ACCOUNT_NAME", System.getenv("AZURE_STORAGE_ACCOUNT_NAME"),
-            "AZURE_KEYVAULT_URL", System.getenv("AZURE_KEYVAULT_URL"),
-            "AZURE_COSMOS_ENDPOINT", System.getenv("AZURE_COSMOS_ENDPOINT")
-        );
+    // Required environment variable names
+    private static final List<String> REQUIRED_VARS = List.of(
+        "AZURE_STORAGE_ACCOUNT_NAME",
+        "AZURE_KEYVAULT_URL",
+        "AZURE_COSMOS_ENDPOINT"
+    );
 
-        List<String> missing = required.entrySet().stream()
+    public static Config fromEnvironment() {
+        // ✅ Use HashMap—Map.of() throws NullPointerException on null values
+        Map<String, String> envValues = new HashMap<>();
+        for (String key : REQUIRED_VARS) {
+            envValues.put(key, System.getenv(key));
+        }
+
+        List<String> missing = envValues.entrySet().stream()
             .filter(e -> e.getValue() == null || e.getValue().isBlank())
             .map(Map.Entry::getKey)
             .toList();
@@ -252,19 +259,23 @@ public record Config(
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
                 "Missing required environment variables: " + String.join(", ", missing) + "\n"
-                + "Create a .env file or set them in your environment.\n"
-                + "See .env.sample for required variables."
+                + "Set them in your shell or use application.properties / application.yml.\n"
+                + "See README.md for required configuration."
             );
         }
 
         return new Config(
-            required.get("AZURE_STORAGE_ACCOUNT_NAME"),
-            required.get("AZURE_KEYVAULT_URL"),
-            required.get("AZURE_COSMOS_ENDPOINT")
+            envValues.get("AZURE_STORAGE_ACCOUNT_NAME"),
+            envValues.get("AZURE_KEYVAULT_URL"),
+            envValues.get("AZURE_COSMOS_ENDPOINT")
         );
     }
 }
 ```
+
+> **⚠️ Java Map.of() and null values:** `Map.of("key", null)` throws `NullPointerException` at map creation time. Since `System.getenv()` returns `null` for unset variables, always use `HashMap` when values may be null.
+>
+> **⚠️ .env files are not native to Java.** Unlike Node.js, Java does not natively load `.env` files. Recommend `System.getenv()` for standalone apps or `application.properties` / `application.yml` for Spring Boot. If a sample uses `.env` files, note that the `io.github.cdimascio:java-dotenv` library is required.
 
 ✅ **DO (Spring Boot):**
 ```yaml
@@ -595,7 +606,7 @@ SecretClient secretClient = new SecretClientBuilder()
 ---
 
 ### AZ-2: Client Options—HttpPipelinePolicy, RetryOptions (MEDIUM)
-**Pattern:** Configure retry policies, timeouts, and logging for production-ready samples.
+**Pattern:** Configure retry policies, timeouts, and logging for production-ready samples. The Azure SDK for Java has built-in retry (via `HttpPipelinePolicy`) with sensible defaults—quickstarts MAY rely on defaults; production samples SHOULD configure explicitly.
 
 ✅ **DO:**
 ```java
@@ -604,6 +615,7 @@ import com.azure.core.http.policy.ExponentialBackoffOptions;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 
+// ✅ Production samples: configure retry explicitly
 BlobServiceClient blobServiceClient = new BlobServiceClientBuilder()
     .endpoint("https://" + accountName + ".blob.core.windows.net")
     .credential(credential)
@@ -614,17 +626,27 @@ BlobServiceClient blobServiceClient = new BlobServiceClientBuilder()
             .setMaxDelay(java.time.Duration.ofSeconds(30))
     ))
     .buildClient();
+
+// ✅ Quickstarts: SDK defaults are acceptable (3 retries, exponential backoff)
+BlobServiceClient quickstartClient = new BlobServiceClientBuilder()
+    .endpoint("https://" + accountName + ".blob.core.windows.net")
+    .credential(credential)
+    .buildClient();
+// Built-in retry policy handles transient failures automatically.
 ```
 
 ❌ **DON'T:**
 ```java
-// ❌ Don't omit client options for samples that do meaningful work
+// ❌ Don't disable retry for production samples
 BlobServiceClient blobServiceClient = new BlobServiceClientBuilder()
     .endpoint(endpoint)
     .credential(credential)
+    .retryOptions(new RetryOptions(new ExponentialBackoffOptions().setMaxRetries(0)))
     .buildClient();
-// No retry policy, no timeout configuration
+// Disabling retry causes failures on transient network errors
 ```
+
+> **Note:** Azure SDK Java clients include built-in retry with exponential backoff by default. Quickstarts and simple samples do not need explicit retry configuration. Production-grade samples should document retry settings.
 
 ---
 
@@ -672,7 +694,7 @@ var credential = new ClientSecretCredentialBuilder()
 ---
 
 ### AZ-4: Token Management for Non-SDK HTTP (CRITICAL)
-**Pattern:** For services without dedicated SDK client support (custom APIs, direct REST calls), get tokens with `getToken()`. Tokens expire after ~1 hour—implement refresh logic for long-running samples.
+**Pattern:** For services without dedicated SDK client support (custom APIs, direct REST calls), get tokens with `getToken()`. The Azure SDK's `TokenCredential` implementations handle token caching and refresh internally—use `TokenRequestContext` and let the SDK manage expiration.
 
 ✅ **DO:**
 ```java
@@ -683,28 +705,38 @@ import com.azure.core.credential.AccessToken;
 
 TokenCredential credential = new DefaultAzureCredentialBuilder().build();
 
-// ✅ Azure SQL—Get token with expiration tracking
-AccessToken tokenResponse = credential.getToken(
-    new TokenRequestContext().addScopes("https://database.windows.net/.default")
-).block();
+// ✅ TokenRequestContext for scoped token acquisition
+TokenRequestContext tokenContext = new TokenRequestContext()
+    .addScopes("https://database.windows.net/.default");
 
-// ✅ Implement token refresh for long-running operations
-OffsetDateTime tokenExpiresAt = tokenResponse.getExpiresAt();
+// ✅ The SDK caches tokens and refreshes automatically before expiry
+AccessToken tokenResponse = credential.getToken(tokenContext).block();
 
-boolean isTokenExpiringSoon(OffsetDateTime expiresAt) {
-    return OffsetDateTime.now().plusMinutes(5).isAfter(expiresAt);
-}
-
-// Before long operation
-if (isTokenExpiringSoon(tokenExpiresAt)) {
-    System.out.println("Token expiring soon, refreshing...");
-    tokenResponse = credential.getToken(
-        new TokenRequestContext().addScopes("https://database.windows.net/.default")
-    ).block();
-}
+// ✅ For long-running operations, re-call getToken()—the SDK returns
+// a cached token if still valid, or refreshes transparently
+String token = credential.getToken(tokenContext).block().getToken();
 
 // Use token in JDBC connection...
-String token = tokenResponse.getToken();
+SQLServerDataSource dataSource = new SQLServerDataSource();
+dataSource.setAccessToken(token);
+```
+
+✅ **DO (When SDK client is NOT available—direct REST calls):**
+```java
+// ✅ For direct HTTP calls to Azure APIs, wrap token acquisition in a helper
+// that re-calls getToken() before each request (SDK handles caching internally)
+private String getAccessToken(TokenCredential credential, String scope) {
+    return credential.getToken(
+        new TokenRequestContext().addScopes(scope)
+    ).block().getToken();
+}
+
+// Before each HTTP request in a long-running loop:
+for (DataBatch batch : batches) {
+    String token = getAccessToken(credential, "https://database.windows.net/.default");
+    // SDK returns cached token if valid, refreshes if expiring soon
+    httpClient.sendRequest(buildRequest(batch, token));
+}
 ```
 
 ❌ **DON'T:**
@@ -713,10 +745,17 @@ String token = tokenResponse.getToken();
 AccessToken token = credential.getToken(
     new TokenRequestContext().addScopes("https://database.windows.net/.default")
 ).block();
-// ... hours of processing with same token (WILL EXPIRE after ~1 hour)
+String tokenValue = token.getToken();
+// ... hours of processing with same tokenValue string (WILL EXPIRE after ~1 hour)
+
+// ❌ Don't manually track expiration with custom methods
+// The SDK's TokenCredential handles caching and refresh internally
+boolean isTokenExpiringSoon(OffsetDateTime expiresAt) {  // ❌ Unnecessary
+    return OffsetDateTime.now().plusMinutes(5).isAfter(expiresAt);
+}
 ```
 
-**Why:** Azure tokens expire after approximately 1 hour. Samples processing large datasets or running long operations MUST refresh tokens before expiration.
+**Why:** Azure SDK's `TokenCredential.getToken()` handles caching and proactive refresh internally. Re-call `getToken()` before each use in long-running operations—the SDK returns the cached token if still valid. Don't extract the token string once and reuse it for hours.
 
 ---
 
@@ -769,18 +808,15 @@ try (ServiceBusSenderClient sender = new ServiceBusClientBuilder()
     sender.sendMessage(new ServiceBusMessage("Hello"));
 }  // ✅ sender.close() called automatically
 
-// ✅ Pattern 2: finally block (for non-AutoCloseable clients)
-CosmosClient cosmosClient = new CosmosClientBuilder()
-    .endpoint(endpoint)
-    .credential(credential)
-    .buildClient();
+// ✅ Pattern 2: try-with-resources for CosmosClient (implements Closeable)
+try (CosmosClient cosmosClient = new CosmosClientBuilder()
+        .endpoint(endpoint)
+        .credential(credential)
+        .buildClient()) {
 
-try {
     CosmosDatabase database = cosmosClient.getDatabase("mydb");
     // ... operations
-} finally {
-    cosmosClient.close();  // ✅ Always cleanup
-}
+}  // ✅ cosmosClient.close() called automatically
 ```
 
 ❌ **DON'T:**
@@ -837,12 +873,195 @@ for (JsonNode item : items) {
 // ❌ CRITICAL BUG: Only gets first page
 PagedIterable<BlobItem> blobs = containerClient.listBlobs();
 List<BlobItem> firstPage = blobs.streamByPage().findFirst()
-    .map(page -> page.getValue())
+    .map(page -> page.getElements().stream().toList())
     .orElse(List.of());
 // ❌ Silently ignores all subsequent pages
 ```
 
+> **Note:** `PagedResponse<T>` provides both `getElements()` (returns `IterableStream<T>`) and `getValue()` (returns `List<T>`, inherited from `Response<List<T>>`). Prefer `getElements()` for consistency. For most use cases, iterate `PagedIterable` directly with `forEach()` or `stream()`—it handles pagination automatically.
+
 **Why:** Azure APIs return paginated results. Samples must demonstrate proper pagination or users will silently lose data in production.
+
+---
+
+### AZ-8: Async Client Patterns—Reactor (Mono/Flux) (HIGH)
+**Pattern:** Azure SDK for Java provides `*AsyncClient` variants for all services using Project Reactor (`Mono<T>` and `Flux<T>`). Samples should demonstrate async patterns when the use case benefits from non-blocking I/O.
+
+✅ **DO:**
+```java
+import com.azure.cosmos.CosmosAsyncClient;
+import com.azure.cosmos.CosmosAsyncContainer;
+import com.azure.cosmos.CosmosClientBuilder;
+import com.azure.cosmos.models.PartitionKey;
+import com.azure.storage.blob.BlobAsyncClient;
+import com.azure.storage.blob.BlobServiceAsyncClient;
+import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.azure.security.keyvault.secrets.SecretAsyncClient;
+import com.azure.security.keyvault.secrets.SecretClientBuilder;
+import com.azure.identity.DefaultAzureCredentialBuilder;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
+
+var credential = new DefaultAzureCredentialBuilder().build();
+
+// ✅ Cosmos DB async client
+CosmosAsyncClient cosmosAsyncClient = new CosmosClientBuilder()
+    .endpoint(config.cosmosEndpoint())
+    .credential(credential)
+    .buildAsyncClient();
+
+CosmosAsyncContainer container = cosmosAsyncClient
+    .getDatabase("mydb")
+    .getContainer("mycontainer");
+
+// ✅ Async point read with Mono
+container.readItem("item-id", new PartitionKey("electronics"), JsonNode.class)
+    .subscribe(
+        response -> System.out.println("Item: " + response.getItem()),
+        error -> System.err.println("Error: " + error.getMessage())
+    );
+
+// ✅ Async query with Flux
+container.queryItems("SELECT * FROM c WHERE c.category = 'electronics'",
+        new CosmosQueryRequestOptions(), JsonNode.class)
+    .byPage()
+    .flatMap(page -> Flux.fromIterable(page.getElements()))
+    .doOnNext(item -> System.out.println("Item: " + item.get("name").asText()))
+    .blockLast();  // Only in samples; production uses subscribe()
+
+// ✅ Blob Storage async
+BlobServiceAsyncClient blobAsyncClient = new BlobServiceClientBuilder()
+    .endpoint("https://" + accountName + ".blob.core.windows.net")
+    .credential(credential)
+    .buildAsyncClient();
+
+blobAsyncClient.getBlobContainerAsyncClient("mycontainer")
+    .getBlobAsyncClient("sample.txt")
+    .downloadContent()
+    .subscribe(content -> System.out.println("Content: " + content.toString()));
+
+// ✅ Key Vault async
+SecretAsyncClient secretAsyncClient = new SecretClientBuilder()
+    .vaultUrl(config.keyVaultUrl())
+    .credential(credential)
+    .buildAsyncClient();
+
+secretAsyncClient.getSecret("my-secret")
+    .subscribe(secret -> System.out.println("Secret: " + secret.getValue()));
+```
+
+❌ **DON'T:**
+```java
+// ❌ Don't block on every async call (defeats the purpose)
+String value = secretAsyncClient.getSecret("my-secret")
+    .block()  // ❌ Blocking—use sync client instead
+    .getValue();
+
+// ❌ Don't ignore errors in subscribe
+container.readItem("id", partitionKey, JsonNode.class)
+    .subscribe(response -> process(response));  // ❌ No error handler
+```
+
+> **When to use async:** Use `*AsyncClient` for high-throughput scenarios (batch processing, event-driven), reactive web frameworks (Spring WebFlux), or when composing multiple service calls. Use sync clients for simple samples, CLI tools, and Spring MVC applications.
+
+---
+
+### AZ-9: Logging Configuration—SLF4J (HIGH)
+**Pattern:** Azure SDK for Java uses SLF4J for logging. Configure logging to help users troubleshoot issues. Document log configuration in README.
+
+✅ **DO:**
+```xml
+<!-- pom.xml - Add SLF4J implementation -->
+<dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>slf4j-simple</artifactId>
+    <version>2.0.16</version>
+</dependency>
+
+<!-- Or for Spring Boot samples (already included via spring-boot-starter) -->
+<!-- Logback is the default Spring Boot logging implementation -->
+```
+
+```properties
+# src/main/resources/simplelogger.properties (for slf4j-simple)
+org.slf4j.simpleLogger.defaultLogLevel=info
+# ✅ Enable Azure SDK verbose logging for troubleshooting
+org.slf4j.simpleLogger.log.com.azure=info
+# ✅ Enable HTTP request/response logging
+org.slf4j.simpleLogger.log.com.azure.core.http=debug
+```
+
+```xml
+<!-- logback.xml (for Logback / Spring Boot) -->
+<configuration>
+    <logger name="com.azure" level="INFO" />
+    <!-- ✅ Verbose Azure SDK logging for debugging -->
+    <logger name="com.azure.core.http" level="DEBUG" />
+    <!-- ✅ Identity/credential troubleshooting -->
+    <logger name="com.azure.identity" level="DEBUG" />
+</configuration>
+```
+
+```java
+// ✅ Enable HTTP logging on client builder
+import com.azure.core.http.policy.HttpLogDetailLevel;
+import com.azure.core.http.policy.HttpLogOptions;
+
+BlobServiceClient client = new BlobServiceClientBuilder()
+    .endpoint(endpoint)
+    .credential(credential)
+    .httpLogOptions(new HttpLogOptions().setLogLevel(HttpLogDetailLevel.BODY_AND_HEADERS))
+    .buildClient();
+```
+
+❌ **DON'T:**
+```java
+// ❌ Don't use System.out for logging in production samples
+System.out.println("Connecting to storage...");
+
+// ❌ Don't ignore SLF4J "no binding" warnings
+// SLF4J: No SLF4J providers were found.
+// This means no logging implementation is on the classpath
+```
+
+> **README guidance:** Document how to enable verbose logging: *"To troubleshoot Azure SDK errors, set the `com.azure` logger to `DEBUG` in your logging configuration."*
+
+---
+
+### AZ-10: HttpClient Selection (MEDIUM)
+**Pattern:** Azure SDK for Java supports multiple HTTP client implementations. Document which is in use and when to switch.
+
+✅ **DO:**
+```xml
+<!-- pom.xml -->
+<!-- Default: Netty (included transitively by most Azure SDK packages) -->
+<!-- No additional dependency needed for Netty -->
+
+<!-- Alternative: OkHttp (smaller footprint, good for Android/CLI) -->
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-core-http-okhttp</artifactId>
+</dependency>
+
+<!-- Alternative: JDK HttpClient (Java 11+, no extra dependencies) -->
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-core-http-jdk-httpclient</artifactId>
+</dependency>
+```
+
+```java
+// ✅ Explicitly set HTTP client (optional—defaults to auto-detected)
+import com.azure.core.http.HttpClient;
+
+BlobServiceClient client = new BlobServiceClientBuilder()
+    .endpoint(endpoint)
+    .credential(credential)
+    .httpClient(HttpClient.createDefault())  // Uses auto-detected implementation
+    .buildClient();
+```
+
+> **When to switch:** Use **Netty** (default) for high-throughput server apps. Use **OkHttp** for smaller footprint or Android. Use **JDK HttpClient** to minimize dependencies in Java 11+ projects.
 
 ---
 
@@ -978,6 +1197,74 @@ insertEmbedding(embedding);  // May fail silently if dimension wrong
 
 ---
 
+### AI-5: Speech SDK (HIGH)
+**Pattern:** Use `com.microsoft.cognitiveservices.speech:client-sdk` for speech-to-text and text-to-speech. This is a separate SDK from the `com.azure:*` packages.
+
+✅ **DO:**
+```xml
+<!-- pom.xml - Speech SDK (separate from azure-sdk-bom) -->
+<dependency>
+    <groupId>com.microsoft.cognitiveservices.speech</groupId>
+    <artifactId>client-sdk</artifactId>
+    <version>1.42.0</version>  <!-- Check https://learn.microsoft.com/azure/ai-services/speech-service/releasenotes for latest -->
+</dependency>
+```
+
+```java
+import com.microsoft.cognitiveservices.speech.*;
+import com.microsoft.cognitiveservices.speech.audio.AudioConfig;
+
+// ✅ Speech-to-text with AAD auth (preferred)
+// Note: SpeechConfig supports both key and AAD token auth
+String token = credential.getToken(
+    new TokenRequestContext().addScopes("https://cognitiveservices.azure.com/.default")
+).block().getToken();
+String region = config.speechRegion();  // e.g., "eastus"
+
+SpeechConfig speechConfig = SpeechConfig.fromAuthorizationToken(token, region);
+speechConfig.setSpeechRecognitionLanguage("en-US");
+
+// ✅ Recognize from microphone
+try (SpeechRecognizer recognizer = new SpeechRecognizer(speechConfig)) {
+    SpeechRecognitionResult result = recognizer.recognizeOnceAsync().get();
+    if (result.getReason() == ResultReason.RecognizedSpeech) {
+        System.out.println("Recognized: " + result.getText());
+    } else if (result.getReason() == ResultReason.NoMatch) {
+        System.out.println("No speech recognized.");
+    }
+}  // ✅ Recognizer closed automatically
+
+// ✅ Text-to-speech
+try (SpeechSynthesizer synthesizer = new SpeechSynthesizer(speechConfig)) {
+    SpeechSynthesisResult result = synthesizer.SpeakTextAsync("Hello from Azure!").get();
+    if (result.getReason() == ResultReason.SynthesizingAudioCompleted) {
+        System.out.println("Speech synthesized successfully.");
+    }
+}
+
+// ✅ Recognize from audio file
+AudioConfig audioConfig = AudioConfig.fromWavFileInput("sample.wav");
+try (SpeechRecognizer recognizer = new SpeechRecognizer(speechConfig, audioConfig)) {
+    SpeechRecognitionResult result = recognizer.recognizeOnceAsync().get();
+    System.out.println("Recognized: " + result.getText());
+}
+```
+
+❌ **DON'T:**
+```java
+// ❌ Don't use subscription key directly in samples (prefer AAD token)
+SpeechConfig config = SpeechConfig.fromSubscription(subscriptionKey, region);
+
+// ❌ Don't forget to close SpeechRecognizer/SpeechSynthesizer (native resources)
+SpeechRecognizer recognizer = new SpeechRecognizer(speechConfig);
+recognizer.recognizeOnceAsync().get();
+// ❌ Native resources leaked
+```
+
+> **Note:** The Speech SDK (`com.microsoft.cognitiveservices.speech:client-sdk`) is NOT managed by `azure-sdk-bom`. Pin the version explicitly. The SDK includes native libraries—ensure the correct platform classifier is available at runtime.
+
+---
+
 ## 4. Data Services (Cosmos DB, SQL, Storage, Tables)
 
 **What this section covers:** Database and storage client patterns, connection management, transactions, batching, and query parameterization. Includes service-specific best practices for Cosmos DB, Azure SQL (JDBC), and Storage.
@@ -1045,7 +1332,7 @@ container.queryItems("SELECT * FROM c", new CosmosQueryRequestOptions(), JsonNod
 ---
 
 ### DB-2: Azure SQL with JDBC (HIGH)
-**Pattern:** Use `mssql-jdbc` with AAD token authentication. Use connection pooling (HikariCP).
+**Pattern:** Use `mssql-jdbc` with AAD token authentication. Use connection pooling (HikariCP). For simplified passwordless auth, use `azure-identity-extensions` JDBC plugin.
 
 ✅ **DO:**
 ```java
@@ -1079,6 +1366,33 @@ try (Connection conn = dataSource.getConnection()) {
         }
     }
 }
+```
+
+✅ **DO (Simplified passwordless auth with azure-identity-extensions):**
+```xml
+<!-- pom.xml - JDBC plugin for passwordless Azure SQL auth -->
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-identity-extensions</artifactId>
+    <version>1.2.0</version>
+</dependency>
+```
+
+```java
+// ✅ Connection string with ActiveDirectoryDefault authentication
+// No manual token acquisition needed—the JDBC plugin handles it
+String url = "jdbc:sqlserver://myserver.database.windows.net:1433;"
+    + "database=mydb;"
+    + "encrypt=true;"
+    + "authentication=ActiveDirectoryDefault;";
+
+try (Connection conn = DriverManager.getConnection(url)) {
+    // Token acquisition, caching, and refresh handled automatically
+    try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM [Products]")) {
+        // ...
+    }
+}
+```
 ```
 
 ❌ **DON'T:**
@@ -1246,9 +1560,9 @@ if (sasToken != null && !sasToken.isBlank()) {
 
 ---
 
-## 5. Messaging Services (Service Bus, Event Hubs)
+## 5. Messaging Services (Service Bus, Event Hubs, Event Grid)
 
-**What this section covers:** Messaging patterns for queues, topics, event ingestion, and event-driven architectures. Focus on reliable message handling, checkpoint management, and proper resource cleanup.
+**What this section covers:** Messaging patterns for queues, topics, event ingestion, event-driven architectures, and event routing. Focus on reliable message handling, checkpoint management, and proper resource cleanup.
 
 ### MSG-1: Service Bus Patterns (HIGH)
 **Pattern:** Use `com.azure:azure-messaging-servicebus` with `DefaultAzureCredential`. Complete or abandon messages.
@@ -2257,12 +2571,18 @@ services:
         <dependency>
             <groupId>com.azure.spring</groupId>
             <artifactId>spring-cloud-azure-dependencies</artifactId>
-            <version>5.18.0</version>
+            <version>${spring-cloud-azure.version}</version>  <!-- ✅ Use property, set to latest stable -->
             <type>pom</type>
             <scope>import</scope>
         </dependency>
     </dependencies>
 </dependencyManagement>
+
+<!-- Define version in properties—use latest stable compatible with your Spring Boot version -->
+<!-- Check https://learn.microsoft.com/azure/developer/java/spring-framework/developer-guide-overview -->
+<properties>
+    <spring-cloud-azure.version>5.19.0</spring-cloud-azure.version>  <!-- Update to latest stable -->
+</properties>
 
 <dependencies>
     <dependency>
@@ -2577,6 +2897,83 @@ class StorageIntegrationTest {
 
 ---
 
+## 16. Advanced SDK Configuration
+
+**What this section covers:** Distributed tracing, GraalVM native-image compatibility, and other cross-cutting concerns for production-ready Azure SDK Java applications.
+
+### ADV-1: Distributed Tracing with OpenTelemetry (MEDIUM)
+**Pattern:** Use `com.azure:azure-core-tracing-opentelemetry` for distributed tracing across Azure SDK operations.
+
+✅ **DO:**
+```xml
+<!-- pom.xml -->
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-core-tracing-opentelemetry</artifactId>
+</dependency>
+<!-- OpenTelemetry SDK -->
+<dependency>
+    <groupId>io.opentelemetry</groupId>
+    <artifactId>opentelemetry-sdk</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.opentelemetry</groupId>
+    <artifactId>opentelemetry-exporter-otlp</artifactId>
+</dependency>
+```
+
+```java
+// ✅ Azure SDK automatically picks up the OpenTelemetry tracer
+// when azure-core-tracing-opentelemetry is on the classpath.
+// Configure the OpenTelemetry SDK as usual:
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.exporter.otlp.trace.OtlpGrpcSpanExporter;
+
+SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
+    .addSpanProcessor(BatchSpanProcessor.builder(
+        OtlpGrpcSpanExporter.builder().build()
+    ).build())
+    .build();
+
+OpenTelemetrySdk.builder()
+    .setTracerProvider(tracerProvider)
+    .buildAndRegisterGlobal();
+
+// ✅ Azure SDK calls are now automatically traced
+// Spans include HTTP requests, retries, and service-specific operations
+BlobServiceClient client = new BlobServiceClientBuilder()
+    .endpoint(endpoint)
+    .credential(credential)
+    .buildClient();
+// All operations on this client produce OpenTelemetry spans
+```
+
+> **Note:** For Azure Monitor integration, use `com.azure:azure-monitor-opentelemetry-exporter` to send traces to Application Insights.
+
+---
+
+### ADV-2: GraalVM Native Image (MEDIUM)
+**Pattern:** For Azure SDK Java applications compiled with GraalVM native-image, add the `azure-core-native` compatibility package.
+
+✅ **DO:**
+```xml
+<!-- pom.xml - GraalVM native-image support -->
+<dependency>
+    <groupId>com.azure</groupId>
+    <artifactId>azure-core-native</artifactId>
+</dependency>
+```
+
+```bash
+# Build native image with Maven
+mvn -Pnative native:compile
+```
+
+> **Note:** Not all Azure SDK features are fully compatible with native-image. Test thoroughly. The `azure-core-native` package provides GraalVM reflection configuration for core Azure SDK types. Check the [Azure SDK for Java native image documentation](https://learn.microsoft.com/azure/developer/java/sdk/native-image) for service-specific support status.
+
+---
+
 ## Pre-Review Checklist (Comprehensive)
 
 Use this comprehensive checklist before submitting an Azure SDK Java sample for review:
@@ -2607,12 +3004,15 @@ Use this comprehensive checklist before submitting an Azure SDK Java sample for 
 ### ☁️ Azure SDK Patterns
 - [ ] `DefaultAzureCredential` used for authentication
 - [ ] Credential instance cached and reused across clients
-- [ ] Client options configured (retry policies, timeouts where applicable)
-- [ ] Token refresh implemented for long-running operations (CRITICAL)
+- [ ] Client options configured (retry policies, timeouts where applicable; quickstarts may use defaults)
+- [ ] Token refresh handled via SDK's `getToken()` re-calls (not manual expiration tracking)
 - [ ] Managed identity pattern documented in README (system vs user-assigned)
 - [ ] Service-specific client builder patterns followed
 - [ ] Pagination handled with `PagedIterable` / `PagedFlux`
 - [ ] Resource cleanup with try-with-resources or finally blocks
+- [ ] Async patterns use `*AsyncClient` with Reactor (`Mono`/`Flux`) where appropriate
+- [ ] SLF4J logging configured (logging implementation on classpath)
+- [ ] HttpClient selection documented if non-default
 
 ### 🗄️ Data Services (if applicable)
 - [ ] SQL: JDBC with AAD token authentication (not SQL auth with passwords)
@@ -2631,6 +3031,8 @@ Use this comprehensive checklist before submitting an Azure SDK Java sample for 
 - [ ] Vector search: DiskANN index creation guarded by row count check (≥1000 for SQL)
 - [ ] Vector dimensions validated (match between model and storage)
 - [ ] Pre-computed embedding data file committed to repo
+- [ ] Speech SDK: `com.microsoft.cognitiveservices.speech:client-sdk` version pinned explicitly (not in BOM)
+- [ ] Speech SDK: `SpeechRecognizer`/`SpeechSynthesizer` closed via try-with-resources
 
 ### 💬 Messaging (if applicable)
 - [ ] Service Bus messages completed/abandoned properly
@@ -2668,6 +3070,11 @@ Use this comprehensive checklist before submitting an Azure SDK Java sample for 
 - [ ] Output values follow azd naming conventions (`AZURE_*`)
 - [ ] `azure.yaml` includes services, hooks, metadata
 
+### 🔬 Advanced (if applicable)
+- [ ] Distributed tracing: `azure-core-tracing-opentelemetry` configured if needed
+- [ ] GraalVM native-image: `azure-core-native` included if targeting native compilation
+- [ ] SQL passwordless auth: `azure-identity-extensions` JDBC plugin considered
+
 ### 🧪 CI/CD
 - [ ] Build runs in CI (`./mvnw verify`)
 - [ ] CVE scanning runs in CI
@@ -2700,6 +3107,7 @@ This skill focuses on the most commonly used Azure services in Java samples. The
 - Azure App Configuration (standalone—Spring integration covered in SB-3)
 - Azure SignalR Service
 - Azure API Management
+- Azure Event Grid (basic patterns similar to Event Hubs; uses `com.azure:azure-messaging-eventgrid`)
 
 For samples using these services, apply the core patterns from Sections 1–2 (Project Setup, Azure SDK Client Patterns) and reference service-specific documentation.
 
@@ -2715,6 +3123,12 @@ Consolidation of all documentation links referenced throughout this skill:
 - [DefaultAzureCredential](https://learn.microsoft.com/java/api/com.azure.identity.defaultazurecredential)
 - [Managed Identities](https://learn.microsoft.com/azure/active-directory/managed-identities-azure-resources/overview)
 - [azure-sdk-bom](https://central.sonatype.com/artifact/com.azure/azure-sdk-bom)
+- [azure-identity-extensions (JDBC plugin)](https://central.sonatype.com/artifact/com.azure/azure-identity-extensions)
+- [azure-core-tracing-opentelemetry](https://central.sonatype.com/artifact/com.azure/azure-core-tracing-opentelemetry)
+- [azure-core-native (GraalVM)](https://central.sonatype.com/artifact/com.azure/azure-core-native)
+- [Azure SDK Java Logging](https://learn.microsoft.com/azure/developer/java/sdk/logging-overview)
+- [Azure SDK Java HTTP Clients](https://learn.microsoft.com/azure/developer/java/sdk/http-client-pipeline)
+- [Azure SDK Java Native Image](https://learn.microsoft.com/azure/developer/java/sdk/native-image)
 
 ### Spring Cloud Azure
 - [Spring Cloud Azure Documentation](https://learn.microsoft.com/azure/developer/java/spring-framework/)
@@ -2724,6 +3138,11 @@ Consolidation of all documentation links referenced throughout this skill:
 ### API Versioning
 - [Azure OpenAI API Versions](https://learn.microsoft.com/azure/ai-services/openai/api-version-deprecation)
 - [Azure REST API Specifications](https://github.com/Azure/azure-rest-api-specs)
+
+### AI & Speech
+- [Azure Speech SDK for Java](https://learn.microsoft.com/azure/ai-services/speech-service/quickstarts/setup-platform?pivots=programming-language-java)
+- [Speech SDK Release Notes](https://learn.microsoft.com/azure/ai-services/speech-service/releasenotes)
+- [Azure AI OpenAI SDK for Java](https://central.sonatype.com/artifact/com.azure/azure-ai-openai)
 
 ### Infrastructure
 - [Azure Verified Modules](https://azure.github.io/Azure-Verified-Modules/)
