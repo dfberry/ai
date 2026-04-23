@@ -21,7 +21,7 @@ Use this skill when reviewing **Python code samples** for Azure SDKs intended fo
 
 This skill captures patterns and anti-patterns discovered during comprehensive reviews of Azure SDK Python samples, adapted from proven TypeScript review patterns and generalized for the Python Azure SDK ecosystem.
 
-**Total rules: 67** (11 CRITICAL, 22 HIGH, 27 MEDIUM, 7 LOW)
+**Total rules: 75** (11 CRITICAL, 23 HIGH, 32 MEDIUM, 9 LOW)
 
 ---
 
@@ -52,7 +52,7 @@ Use this checklist for rapid initial triage before deep review:
 - [ ] **No mixed package managers**: Only pip OR poetry OR uv (not multiple)
 - [ ] **Imports work**: No broken imports, all dependencies installed
 - [ ] **Sample runs**: `python main.py` executes without crashes
-- [ ] **Python version**: 3.9+ required, 3.11/3.12 target
+- [ ] **Python version**: 3.10+ required, 3.12/3.13 target
 
 ---
 
@@ -76,16 +76,18 @@ These issues always block publication. Samples with any of these must be rejecte
 **What this section covers:** Package structure, Python version, dependency management, environment variables, and type hint configuration. These foundational patterns ensure samples install correctly and run reliably across environments.
 
 ### PS-1: Python Version (HIGH)
-**Pattern:** Target Python 3.11 or 3.12 for new samples. Minimum supported is 3.9. Declare in `pyproject.toml` and README.
+**Pattern:** Target Python 3.12 or 3.13 for new samples. Minimum supported is 3.10. Declare in `pyproject.toml` and README.
+
+> **Note:** Python 3.9 reached end-of-life in October 2025. Use 3.10+ as the minimum.
 
 ✅ **DO:**
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 ```
 
 ```python
@@ -102,7 +104,7 @@ def process_items(items: list[str] | None = None) -> dict[str, int]:
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.6"  # ❌ EOL, no security patches
+requires-python = ">=3.9"  # ❌ EOL (October 2025), no security patches
 ```
 
 ```python
@@ -113,7 +115,7 @@ def process_items(items: Optional[List[str]] = None) -> Dict[str, int]:
     ...
 ```
 
-**Why:** Python 3.8 and below are end-of-life. Python 3.9+ is minimum for current Azure SDK packages. Target 3.11/3.12 for best performance and modern syntax.
+**Why:** Python 3.9 and below are end-of-life. Python 3.10+ is minimum for current Azure SDK packages and enables native `X | Y` union syntax without `from __future__ import annotations`. Target 3.12/3.13 for best performance and modern syntax.
 
 ---
 
@@ -130,7 +132,7 @@ description = "Upload and download blobs using Azure Blob Storage SDK"
 authors = [{ name = "Microsoft Corporation" }]
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 [project.urls]
 Repository = "https://github.com/Azure-Samples/azure-storage-blob-samples"
@@ -235,7 +237,7 @@ def get_config() -> dict[str, str]:
     missing = [key for key, value in required.items() if not value]
 
     if missing:
-        raise EnvironmentError(
+        raise ValueError(
             f"Missing required environment variables: {', '.join(missing)}\n"
             f"Create a .env file with these values or set them in your environment.\n"
             f"See .env.sample for required variables."
@@ -258,12 +260,10 @@ endpoint = os.environ["AZURE_OPENAI_ENDPOINT"]  # KeyError with no guidance
 ---
 
 ### PS-6: Type Hints (MEDIUM)
-**Pattern:** Use modern type hints (PEP 484/585/604). All public functions must have type annotations. Use `from __future__ import annotations` for 3.9 compatibility with modern syntax.
+**Pattern:** Use modern type hints (PEP 484/585/604). All public functions must have type annotations. With 3.10+ as the minimum, `from __future__ import annotations` is no longer needed for `X | Y` syntax.
 
 ✅ **DO:**
 ```python
-from __future__ import annotations  # Enables modern syntax on 3.9
-
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
 
@@ -303,7 +303,7 @@ def create_blob_client(account_name, credential=None):
 ---
 
 ### PS-7: .editorconfig / pyproject.toml Formatting (LOW)
-**Pattern:** Include `.editorconfig` and configure formatting tools (ruff, black) in `pyproject.toml`.
+**Pattern:** Include `.editorconfig` and configure formatting tools in `pyproject.toml`. Use `ruff format` OR `black`—not both (ruff includes a formatter).
 
 ✅ **DO:**
 ```ini
@@ -325,18 +325,21 @@ trim_trailing_whitespace = false
 ```
 
 ```toml
-# pyproject.toml
+# pyproject.toml — Option A: ruff for both linting AND formatting (recommended)
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
-[tool.black]
-line-length = 120
-target-version = ["py311"]
+# Option B: black for formatting (don't use both ruff format AND black)
+# [tool.black]
+# line-length = 120
+# target-version = ["py312"]
 ```
+
+> **⚠️ Don't run both `ruff format` and `black`**—`ruff` includes a near-identical formatter. Choose one.
 
 ---
 
@@ -471,7 +474,72 @@ azure-identity==1.17.1
 
 ---
 
-## 2. Azure SDK Client Patterns
+### PS-12: uv Package Manager (MEDIUM)
+**Pattern:** `uv` is a modern, fast Python package manager. It's an alternative to `pip`—not required, but recommended for faster installs. Document as an option alongside `pip`.
+
+✅ **DO:**
+```markdown
+## Setup
+
+### Install dependencies
+
+**Option A: pip (standard)**
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+pip install -r requirements.txt
+```
+
+**Option B: uv (faster)**
+```bash
+uv venv .venv
+source .venv/bin/activate  # Linux/macOS
+uv pip install -r requirements.txt
+```
+```
+
+```bash
+# uv equivalents for common pip commands
+uv pip install azure-identity azure-storage-blob   # Install packages
+uv pip install -r requirements.txt                  # Install from requirements
+uv pip compile pyproject.toml -o requirements.txt   # Generate locked requirements
+uv run python main.py                                # Run without activating venv
+```
+
+> **Note:** `uv` is optional. Always provide `pip` instructions as the primary path. Mention `uv` as a faster alternative for developers who have it installed.
+
+---
+
+### PS-13: Logging Configuration (MEDIUM)
+**Pattern:** Azure SDK for Python uses the standard `logging` module. Document how to enable SDK logging for debugging.
+
+✅ **DO:**
+```python
+import logging
+
+# ✅ Enable Azure SDK debug logging
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("azure").setLevel(logging.DEBUG)
+
+# ✅ For specific packages only
+logging.getLogger("azure.identity").setLevel(logging.DEBUG)
+logging.getLogger("azure.storage.blob").setLevel(logging.DEBUG)
+
+# ✅ Or enable per-client with logging_enable
+from azure.storage.blob import BlobServiceClient
+client = BlobServiceClient(url, credential=credential, logging_enable=True)
+```
+
+❌ **DON'T:**
+```python
+# ❌ Don't leave DEBUG logging on in committed samples
+logging.basicConfig(level=logging.DEBUG)  # ❌ Too noisy for users
+
+# ❌ Don't silence all logging
+logging.disable(logging.CRITICAL)  # ❌ Hides important errors
+```
+
+**Why:** Azure SDK debug logging helps diagnose auth failures, network errors, and retry behavior. Show it commented-out or behind a flag in samples.
 
 **What this section covers:** Authentication, credential management, client construction, retry policies, and managed identity patterns. These are foundational patterns that apply across ALL Azure SDK packages.
 
@@ -534,22 +602,30 @@ secret_client = SecretClient(url, credential=DefaultAzureCredential())
 
 ---
 
-### AZ-2: Client Options—retry_total, retry_backoff_factor (MEDIUM)
+### AZ-2: Client Options—Retry Policies and Timeouts (MEDIUM)
 **Pattern:** Configure retry policies, timeouts, and logging for production-ready samples.
 
-✅ **DO:**
+> **Important:** Retry configuration differs between Azure SDK packages. Most clients use `RetryPolicy` from `azure.core.pipeline.policies`. The `azure-storage-*` packages accept shorthand kwargs (`retry_total`, `retry_backoff_factor`, etc.) directly on the client constructor.
+
+✅ **DO (Generic—most Azure SDK clients):**
 ```python
-from azure.storage.blob import BlobServiceClient
+from azure.core.pipeline.policies import RetryPolicy
+from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 
 credential = DefaultAzureCredential()
 
-blob_service_client = BlobServiceClient(
-    account_url=f"https://{account_name}.blob.core.windows.net",
-    credential=credential,
+# ✅ Generic retry pattern (works with all azure-* clients)
+retry_policy = RetryPolicy(
     retry_total=3,
-    retry_backoff_factor=1.0,
+    retry_backoff_factor=0.8,
     retry_backoff_max=30,
+)
+
+secret_client = SecretClient(
+    vault_url=config["AZURE_KEYVAULT_URL"],
+    credential=credential,
+    retry_policy=retry_policy,
     connection_timeout=10,
     read_timeout=30,
     # For debugging: enable logging
@@ -557,8 +633,34 @@ blob_service_client = BlobServiceClient(
 )
 ```
 
+✅ **DO (Storage-specific shorthand):**
+```python
+from azure.storage.blob import BlobServiceClient
+from azure.identity import DefaultAzureCredential
+
+credential = DefaultAzureCredential()
+
+# ✅ Storage packages accept retry kwargs directly (azure-storage-blob, azure-storage-file-share, etc.)
+blob_service_client = BlobServiceClient(
+    account_url=f"https://{account_name}.blob.core.windows.net",
+    credential=credential,
+    retry_total=3,                # ⚠️ Storage-specific kwarg
+    retry_backoff_factor=1.0,     # ⚠️ Storage-specific kwarg
+    retry_backoff_max=30,         # ⚠️ Storage-specific kwarg
+    connection_timeout=10,
+    read_timeout=30,
+)
+```
+
 ❌ **DON'T:**
 ```python
+# ❌ Don't use storage-specific kwargs on non-storage clients
+secret_client = SecretClient(
+    vault_url=url,
+    credential=credential,
+    retry_total=3,  # ❌ Not recognized by Key Vault client—use RetryPolicy
+)
+
 # ❌ Don't omit client options for samples that do meaningful work
 blob_service_client = BlobServiceClient(
     account_url=url, credential=credential
@@ -773,6 +875,8 @@ for blob in container_client.list_blobs():
         break  # ❌ Stops after 10, may miss thousands
 ```
 
+> **Note:** A `break` after a small count (e.g., 10) is acceptable in quickstart/demo samples to keep output short. For production-style samples, always iterate all pages. Soften this flag in quickstart reviews.
+
 **Why:** Azure APIs return paginated results. The Python SDK's `ItemPaged` handles pagination automatically in `for` loops. Samples must demonstrate proper iteration or users will silently lose data in production.
 
 ---
@@ -914,9 +1018,82 @@ await insert_embedding(embedding)  # May fail silently if dimension wrong
 ```
 
 **Common dimensions:**
-- `text-embedding-3-small`: 1536
-- `text-embedding-3-large`: 3072
-- `text-embedding-ada-002`: 1536
+- `text-embedding-3-small`: 1536 (default), configurable via `dimensions` parameter
+- `text-embedding-3-large`: 3072 (default), configurable via `dimensions` parameter
+- `text-embedding-ada-002`: 1536 (fixed, not configurable)
+
+> **Note:** `text-embedding-3-small` and `text-embedding-3-large` support a `dimensions` parameter to reduce output size (e.g., `dimensions=256`). When using reduced dimensions, update `VECTOR_DIMENSION` accordingly:
+> ```python
+> embedding_response = client.embeddings.create(
+>     model="text-embedding-3-small",
+>     input="Sample text",
+>     dimensions=256,  # Reduced from default 1536
+> )
+> ```
+
+---
+
+### AI-5: Speech SDK (azure-cognitiveservices-speech) (MEDIUM)
+**Pattern:** Use `azure-cognitiveservices-speech` for speech-to-text, text-to-speech, and real-time transcription. The Speech SDK has its own auth pattern (not `DefaultAzureCredential`—it uses `SpeechConfig` with subscription key or AAD token).
+
+✅ **DO:**
+```python
+import azure.cognitiveservices.speech as speechsdk
+from azure.identity import DefaultAzureCredential
+
+# ✅ Option A: Speech key (simpler for quickstarts)
+speech_config = speechsdk.SpeechConfig(
+    subscription=config["AZURE_SPEECH_KEY"],
+    region=config["AZURE_SPEECH_REGION"],
+)
+
+# ✅ Option B: AAD token (production)
+credential = DefaultAzureCredential()
+token = credential.get_token("https://cognitiveservices.azure.com/.default")
+auth_token = f"aad#{config['AZURE_SPEECH_RESOURCE_ID']}#{token.token}"
+speech_config = speechsdk.SpeechConfig(auth_token=auth_token, region=config["AZURE_SPEECH_REGION"])
+
+# ✅ Speech-to-text (from microphone)
+speech_config.speech_recognition_language = "en-US"
+audio_config = speechsdk.audio.AudioConfig(use_default_microphone=True)
+recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+
+result = recognizer.recognize_once()
+if result.reason == speechsdk.ResultReason.RecognizedSpeech:
+    print(f"Recognized: {result.text}")
+elif result.reason == speechsdk.ResultReason.NoMatch:
+    print("No speech could be recognized")
+
+# ✅ Text-to-speech
+speech_config.speech_synthesis_voice_name = "en-US-AriaNeural"
+synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config)
+result = synthesizer.speak_text_async("Hello from Azure Speech Service").get()
+
+if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+    print("Speech synthesized successfully")
+
+# ✅ Continuous recognition (for long audio)
+def recognized_handler(evt):
+    print(f"Recognized: {evt.result.text}")
+
+recognizer.recognized.connect(recognized_handler)
+recognizer.start_continuous_recognition()
+```
+
+❌ **DON'T:**
+```python
+# ❌ Don't hardcode speech key in source
+speech_config = speechsdk.SpeechConfig(
+    subscription="abc123def456",  # ❌ Hardcoded key
+    region="eastus",
+)
+
+# ❌ Don't ignore result.reason (may silently fail)
+result = recognizer.recognize_once()
+print(result.text)  # ❌ Crashes if recognition failed
+```
+
+**Package:** `pip install azure-cognitiveservices-speech`
 
 ---
 
@@ -989,7 +1166,33 @@ items = container.query_items(
 ### DB-2: Azure SQL with pyodbc/pymssql (HIGH)
 **Pattern:** Use `pyodbc` with AAD token authentication. Use parameterized queries.
 
-✅ **DO:**
+> **Tip:** For simpler setups, use `Authentication=Active Directory Default` in the connection string instead of manual token acquisition. This delegates authentication to the ODBC driver and works with managed identity, Azure CLI, etc.
+
+✅ **DO (Recommended—connection string with Active Directory Default):**
+```python
+import pyodbc
+
+# ✅ Simplest approach: let the ODBC driver handle AAD auth
+connection = pyodbc.connect(
+    f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+    f"SERVER={config['AZURE_SQL_SERVER']};"
+    f"DATABASE={config['AZURE_SQL_DATABASE']};"
+    f"Authentication=Active Directory Default;"
+    f"Encrypt=yes;TrustServerCertificate=no;"
+)
+
+# ✅ Parameterized query
+cursor = connection.cursor()
+cursor.execute(
+    "SELECT * FROM [Products] WHERE [Category] = ?",
+    ("Electronics",),
+)
+rows = cursor.fetchall()
+
+connection.close()
+```
+
+✅ **DO (Manual token—when you need token for other purposes):**
 ```python
 import pyodbc
 import struct
@@ -1407,6 +1610,7 @@ items = container.query_items(
 ✅ **DO (Azure AI Search):**
 ```python
 from azure.search.documents import SearchClient
+from azure.search.documents.models import VectorizedQuery
 from azure.identity import DefaultAzureCredential
 
 credential = DefaultAzureCredential()
@@ -1416,6 +1620,25 @@ search_client = SearchClient(
     credential=credential,
 )
 
+# ✅ Use VectorizedQuery class (not raw dicts)
+vector_query = VectorizedQuery(
+    vector=search_embedding,
+    k_nearest_neighbors=5,
+    fields="descriptionVector",
+)
+
+results = search_client.search(
+    search_text="luxury hotel",
+    vector_queries=[vector_query],
+)
+
+for result in results:
+    print(f"{result['name']} (score: {result['@search.score']})")
+```
+
+❌ **DON'T (Azure AI Search):**
+```python
+# ❌ Don't use raw dicts for vector queries—use VectorizedQuery class
 results = search_client.search(
     search_text="luxury hotel",
     vector_queries=[{
@@ -1425,9 +1648,6 @@ results = search_client.search(
         "fields": "descriptionVector",
     }],
 )
-
-for result in results:
-    print(f"{result['name']} (score: {result['@search.score']})")
 ```
 
 ---
@@ -1932,7 +2152,7 @@ If you see "Cannot connect to [service]":
 ### Python-Specific Issues
 
 - `ModuleNotFoundError: No module named 'azure'`: Run `pip install -r requirements.txt`
-- `ImportError`: Check Python version meets minimum requirement (3.9+)
+- `ImportError`: Check Python version meets minimum requirement (3.10+)
 - `ssl.SSLCertVerificationError`: Update certificates: `pip install certifi`
 ```
 
@@ -1946,7 +2166,7 @@ If you see "Cannot connect to [service]":
 ## Prerequisites
 
 - **Azure Subscription**: [Create a free account](https://azure.com/free)
-- **Python**: Version 3.9 or later ([Download](https://www.python.org/downloads/))
+- **Python**: Version 3.10 or later ([Download](https://www.python.org/downloads/))
 - **Azure CLI**: [Install instructions](https://learn.microsoft.com/cli/azure/install-azure-cli)
 - **Azure Developer CLI (azd)**: [Install instructions](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) (optional)
 
@@ -2013,7 +2233,7 @@ python main.py
 ```toml
 # pyproject.toml
 [project]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 ```
 
 ```markdown
@@ -2021,7 +2241,7 @@ requires-python = ">=3.9"
 
 ## Prerequisites
 
-- **Python**: Version 3.9 or later (3.11+ recommended for best performance)
+- **Python**: Version 3.10 or later (3.12+ recommended for best performance)
 ```
 
 ---
@@ -2301,14 +2521,81 @@ services:
 
 ---
 
+### AZD-3: Azure Functions Python v2 Model (MEDIUM)
+**Pattern:** Azure Functions Python v2 uses a decorator-based programming model. Use the `@app` decorators instead of `function.json` files.
+
+✅ **DO (v2 programming model—recommended):**
+```python
+# function_app.py
+import azure.functions as func
+import logging
+
+app = func.FunctionApp()
+
+
+@app.function_name("HttpTrigger")
+@app.route(route="hello", auth_level=func.AuthLevel.ANONYMOUS)
+def hello(req: func.HttpRequest) -> func.HttpResponse:
+    """HTTP trigger function using v2 decorator model."""
+    logging.info("Python HTTP trigger function processed a request.")
+    name = req.params.get("name", "World")
+    return func.HttpResponse(f"Hello, {name}!")
+
+
+@app.function_name("BlobTrigger")
+@app.blob_trigger(arg_name="myblob", path="samples-workitems/{name}", connection="AzureWebJobsStorage")
+def blob_trigger(myblob: func.InputStream) -> None:
+    """Blob trigger using v2 decorator model."""
+    logging.info(f"Blob trigger: {myblob.name}, Size: {myblob.length} bytes")
+
+
+@app.function_name("TimerTrigger")
+@app.timer_trigger(schedule="0 */5 * * * *", arg_name="timer")
+def timer_trigger(timer: func.TimerRequest) -> None:
+    """Timer trigger that runs every 5 minutes."""
+    logging.info("Timer trigger executed")
+```
+
+❌ **DON'T:**
+```python
+# ❌ v1 model (function.json + __init__.py)—avoid for new samples
+# function.json — ❌ Don't use this pattern for new projects
+# {
+#   "bindings": [{"type": "httpTrigger", "direction": "in", "name": "req"}]
+# }
+```
+
+> **Note:** The v2 programming model (`azure-functions>=1.18.0`) is the recommended approach for new Azure Functions Python projects. It replaces the v1 `function.json` + `__init__.py` pattern with decorators.
+
+---
+
 ## 14. Async Patterns
 
 **What this section covers:** Python-specific async/await patterns for Azure SDK clients. The Azure SDK for Python provides async versions of most clients under `.aio` submodules.
 
 ### ASYNC-1: Async Client Usage (HIGH)
-**Pattern:** Import async clients from `.aio` submodules. Use `async with` for automatic cleanup.
+**Pattern:** Import async clients from `.aio` submodules. Use `async with` for automatic cleanup. Always close `DefaultAzureCredential` in a `try/finally` block or use it as an async context manager.
 
-✅ **DO:**
+✅ **DO (Preferred—async context manager for credential):**
+```python
+from azure.storage.blob.aio import BlobServiceClient
+from azure.identity.aio import DefaultAzureCredential
+
+async def upload_blob(account_name: str, data: bytes) -> None:
+    """Upload a blob using async client with proper credential cleanup."""
+    # ✅ DefaultAzureCredential supports async with (recommended)
+    async with DefaultAzureCredential() as credential:
+        async with BlobServiceClient(
+            account_url=f"https://{account_name}.blob.core.windows.net",
+            credential=credential,
+        ) as blob_service_client:
+            container_client = blob_service_client.get_container_client("mycontainer")
+            blob_client = container_client.get_blob_client("myblob.txt")
+            await blob_client.upload_blob(data, overwrite=True)
+    # ✅ Both credential and client closed automatically
+```
+
+✅ **DO (Alternative—try/finally for credential cleanup):**
 ```python
 from azure.storage.blob.aio import BlobServiceClient
 from azure.identity.aio import DefaultAzureCredential
@@ -2316,16 +2603,16 @@ from azure.identity.aio import DefaultAzureCredential
 async def upload_blob(account_name: str, data: bytes) -> None:
     """Upload a blob using async client."""
     credential = DefaultAzureCredential()
-
-    async with BlobServiceClient(
-        account_url=f"https://{account_name}.blob.core.windows.net",
-        credential=credential,
-    ) as blob_service_client:
-        container_client = blob_service_client.get_container_client("mycontainer")
-        blob_client = container_client.get_blob_client("myblob.txt")
-        await blob_client.upload_blob(data, overwrite=True)
-
-    await credential.close()
+    try:
+        async with BlobServiceClient(
+            account_url=f"https://{account_name}.blob.core.windows.net",
+            credential=credential,
+        ) as blob_service_client:
+            container_client = blob_service_client.get_container_client("mycontainer")
+            blob_client = container_client.get_blob_client("myblob.txt")
+            await blob_client.upload_blob(data, overwrite=True)
+    finally:
+        await credential.close()  # ✅ Always close credential
 ```
 
 ❌ **DON'T:**
@@ -2457,6 +2744,33 @@ await asyncio.gather(
 
 ---
 
+### ASYNC-5: httpx Async Transport (LOW)
+**Pattern:** Azure SDK can use `httpx` as an alternative async HTTP transport for environments that benefit from it (e.g., HTTP/2 support).
+
+✅ **DO:**
+```python
+# ✅ Optional: Use httpx transport for HTTP/2 or custom transport needs
+from azure.core.pipeline.transport import HttpXTransport
+from azure.storage.blob.aio import BlobServiceClient
+from azure.identity.aio import DefaultAzureCredential
+
+async def upload_with_httpx(account_name: str, data: bytes) -> None:
+    """Use httpx transport for async operations."""
+    transport = HttpXTransport()
+    async with DefaultAzureCredential() as credential:
+        async with BlobServiceClient(
+            account_url=f"https://{account_name}.blob.core.windows.net",
+            credential=credential,
+            transport=transport,
+        ) as client:
+            blob_client = client.get_container_client("mycontainer").get_blob_client("myblob.txt")
+            await blob_client.upload_blob(data, overwrite=True)
+```
+
+> **Note:** `httpx` transport is optional. The default `aiohttp` transport works well for most scenarios. Install: `pip install httpx`.
+
+---
+
 ## 15. CI/CD & Testing
 
 **What this section covers:** Continuous integration patterns, testing with pytest, linting, and build validation.
@@ -2476,7 +2790,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.11", "3.12"]
+        python-version: ["3.10", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -2532,7 +2846,7 @@ disallow_untyped_defs = true
 Use this comprehensive checklist before submitting an Azure SDK Python sample for review:
 
 ### 🔧 Project Setup
-- [ ] Python version 3.9+ specified in `pyproject.toml` (`requires-python = ">=3.9"`)
+- [ ] Python version 3.10+ specified in `pyproject.toml` (`requires-python = ">=3.10"`)
 - [ ] `pyproject.toml` has `authors`, `license`, `urls`, `requires-python`
 - [ ] Every dependency is imported somewhere (no phantom deps)
 - [ ] Using Track 2 Azure SDK packages (`azure-*`, not legacy)
@@ -2623,7 +2937,7 @@ Use this comprehensive checklist before submitting an Azure SDK Python sample fo
 - [ ] Linting runs in CI (ruff or flake8)
 - [ ] Type checking runs in CI (mypy or pyright)
 - [ ] Tests pass with pytest
-- [ ] Multiple Python versions tested (3.9, 3.11, 3.12)
+- [ ] Multiple Python versions tested (3.10, 3.12, 3.13)
 
 ---
 
@@ -2682,12 +2996,17 @@ Consolidation of all documentation links referenced throughout this skill:
 - [Azure Private Endpoints](https://learn.microsoft.com/azure/private-link/private-endpoint-overview)
 - [pip-audit](https://pypi.org/project/pip-audit/)
 
+### Speech & AI Services
+- [Azure Speech SDK for Python](https://learn.microsoft.com/azure/ai-services/speech-service/quickstarts/setup-platform?pivots=programming-language-python)
+- [Azure AI Search Python SDK](https://learn.microsoft.com/python/api/azure-search-documents/)
+
 ### Python
 - [Python Downloads](https://www.python.org/downloads/)
 - [PEP 621—pyproject.toml metadata](https://peps.python.org/pep-0621/)
 - [PEP 604—Union types X | Y](https://peps.python.org/pep-0604/)
 - [PEP 585—Builtin generics](https://peps.python.org/pep-0585/)
 - [Ruff Linter](https://docs.astral.sh/ruff/)
+- [uv Package Manager](https://docs.astral.sh/uv/)
 - [pytest](https://docs.pytest.org/)
 
 ### Microsoft Open Source
@@ -2702,18 +3021,19 @@ This skill captures **Azure SDK Python sample patterns** adapted from comprehens
 
 ### Severity Breakdown
 - **CRITICAL** (11 rules): Credentials, phantom deps, CVE scanning, token refresh, AVM versions, parameter validation, .gitignore, fabricated output, broken links, broken auth, missing error handling
-- **HIGH** (22 rules): Client construction, token management, managed identity, pagination, OpenAI config, database patterns, DiskANN guards, batch operations, RBAC, lock files, role assignments, pre-computed data, .env.sample, prerequisites, dead code, LICENSE file, resource naming, network security, async clients, CI testing, Service Bus, Key Vault
-- **MEDIUM** (27 rules): Client options, retry policies, identifier quoting, embeddings, error handling, JSON loading, troubleshooting, azd structure, type hints, version pinning, SAS fallback, dimensions, placeholder docs, resource cleanup, API versions, governance files, pyproject.toml metadata, env config, package legitimacy, async context managers, event loop entry, type checking, exception hierarchy, contextual errors, async errors, setup docs, host types
-- **LOW** (7 rules): API version docs, .editorconfig, CONTRIBUTING.md, scope notes, Python version docs, concurrent gather, region availability
+- **HIGH** (23 rules): Client construction, token management, managed identity, pagination, OpenAI config, database patterns, DiskANN guards, batch operations, RBAC, lock files, role assignments, pre-computed data, .env.sample, prerequisites, dead code, LICENSE file, resource naming, network security, async clients, CI testing, Service Bus, Key Vault, Azure Functions v2
+- **MEDIUM** (32 rules): Client options, retry policies, identifier quoting, embeddings, error handling, JSON loading, troubleshooting, azd structure, type hints, version pinning, SAS fallback, dimensions, placeholder docs, resource cleanup, API versions, governance files, pyproject.toml metadata, env config, package legitimacy, async context managers, event loop entry, type checking, exception hierarchy, contextual errors, async errors, setup docs, host types, Speech SDK, uv package manager, logging configuration, AI Search vector queries, Active Directory Default
+- **LOW** (9 rules): API version docs, .editorconfig/formatting, CONTRIBUTING.md, scope notes, Python version docs, concurrent gather, region availability, embedding dimensions config, httpx async transport
 
 ### Service Coverage
-- **Core SDK**: Authentication, credentials, managed identities, client patterns, token management, pagination, resource cleanup
-- **Data**: Cosmos DB, Azure SQL (pyodbc), Storage (Blob/Table), batch operations
-- **AI**: Azure OpenAI (embeddings, chat, images), Document Intelligence, vector dimensions
+- **Core SDK**: Authentication, credentials, managed identities, client patterns, token management, pagination, resource cleanup, retry policies (generic + storage-specific), logging
+- **Data**: Cosmos DB, Azure SQL (pyodbc + Active Directory Default), Storage (Blob/Table), batch operations
+- **AI**: Azure OpenAI (embeddings, chat, images, configurable dimensions), Document Intelligence, vector dimensions, Speech SDK (STT/TTS)
 - **Messaging**: Service Bus, Event Hubs, checkpoint management
 - **Security**: Key Vault (secrets, keys, certificates)
-- **Vector Search**: Azure SQL DiskANN, Cosmos DB, AI Search
-- **Infrastructure**: Bicep/Terraform, AVM modules, azd integration, RBAC, CAF naming
-- **Async**: Async clients (.aio), context managers, asyncio.run(), bounded concurrency
+- **Vector Search**: Azure SQL DiskANN, Cosmos DB, AI Search (VectorizedQuery)
+- **Infrastructure**: Bicep/Terraform, AVM modules, azd integration, RBAC, CAF naming, Azure Functions v2
+- **Async**: Async clients (.aio), context managers (including credential), asyncio.run(), bounded concurrency, httpx transport
+- **Tooling**: uv package manager, ruff format, pip-audit, logging configuration
 
 Apply these patterns to ensure Azure SDK Python samples are **secure, accurate, maintainable, and ready for publication**.
